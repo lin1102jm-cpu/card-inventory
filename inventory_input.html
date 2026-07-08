@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>卡片庫存新增</title>
+<style>
+  :root{
+    --bg:#0f172a; --card:#1e293b; --accent:#22c55e; --text:#e2e8f0; --muted:#94a3b8; --border:#334155;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  .wrap{max-width:480px; margin:0 auto; padding:20px 16px 40px;}
+  h1{font-size:20px; margin:8px 0 20px; text-align:center;}
+  .card{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px; margin-bottom:16px;}
+  label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px; margin-top:14px;}
+  label:first-child{margin-top:0;}
+  input[type=text], input[type=number], select, textarea{
+    width:100%; padding:12px; border-radius:10px; border:1px solid var(--border);
+    background:#0f172a; color:var(--text); font-size:16px;
+  }
+  textarea{resize:vertical; min-height:56px;}
+  .row2{display:flex; gap:10px;}
+  .row2 > div{flex:1;}
+  .row3{display:flex; gap:10px;}
+  .row3 > div{flex:1;}
+  button{
+    width:100%; padding:14px; margin-top:20px; border:none; border-radius:12px;
+    background:var(--accent); color:#052e16; font-size:16px; font-weight:700;
+    cursor:pointer;
+  }
+  button:active{opacity:0.85;}
+  button.secondary{background:transparent; border:1px solid var(--border); color:var(--muted); margin-top:8px; font-weight:400;}
+  #status{text-align:center; font-size:14px; margin-top:14px; min-height:20px;}
+  #status.ok{color:var(--accent);}
+  #status.err{color:#f87171;}
+  .settings{font-size:12px; color:var(--muted); margin-top:24px; border-top:1px solid var(--border); padding-top:14px;}
+  .settings input{margin-top:6px;}
+  details summary{cursor:pointer; color:var(--muted); font-size:13px;}
+  .preview{font-size:12px; color:var(--muted); margin-top:10px; padding:8px 10px; background:#0f172a; border-radius:8px; border:1px solid var(--border);}
+  .section-label{font-size:12px; color:var(--accent); font-weight:700; margin-top:18px; text-transform:uppercase; letter-spacing:0.5px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📥 新增卡片庫存</h1>
+
+  <div class="card">
+
+    <label>運動類型</label>
+    <select id="sport">
+      <option value="F1">F1</option>
+      <option value="棒球">棒球</option>
+      <option value="籃球">籃球</option>
+      <option value="其他">其他</option>
+    </select>
+
+    <div class="row3">
+      <div>
+        <label>年份</label>
+        <input type="number" id="year" placeholder="2026" inputmode="numeric">
+      </div>
+      <div style="flex:2">
+        <label>系列</label>
+        <input type="text" id="series" placeholder="例如 Topps Chrome">
+      </div>
+    </div>
+
+    <div class="row2">
+      <div>
+        <label>人名</label>
+        <input type="text" id="playerName" placeholder="例如 柯敬賢">
+      </div>
+      <div>
+        <label>卡號</label>
+        <input type="text" id="cardNo" placeholder="例如 #123">
+      </div>
+    </div>
+
+    <label>種類</label>
+    <input type="text" id="type" placeholder="例如 基礎卡 / 親筆簽名 / 新人卡">
+
+    <div class="preview" id="titlePreview">標題預覽：（尚未輸入）</div>
+
+    <div class="section-label">數量與金額</div>
+    <div class="row3">
+      <div>
+        <label>數量</label>
+        <input type="number" id="qty" value="1" inputmode="numeric">
+      </div>
+      <div>
+        <label>購買金額</label>
+        <input type="number" id="cost" placeholder="0" inputmode="numeric">
+      </div>
+      <div>
+        <label>售價 *</label>
+        <input type="number" id="price" placeholder="0" inputmode="numeric">
+      </div>
+    </div>
+
+    <label>收款方式</label>
+    <select id="payment">
+      <option value="LINE Pay">LINE Pay</option>
+      <option value="街口">街口</option>
+      <option value="現金">現金</option>
+    </select>
+
+    <label>備註</label>
+    <textarea id="notes" placeholder="選填"></textarea>
+
+    <button id="submitBtn" onclick="submitForm()">新增到庫存（狀態：待售）</button>
+    <div id="status"></div>
+  </div>
+
+  <details class="settings">
+    <summary>⚙️ Webhook 設定</summary>
+    <label>N8N Webhook URL</label>
+    <input type="text" id="webhookUrl" placeholder="https://192.168.13.205:5678/webhook/inventory-add">
+    <button class="secondary" onclick="saveWebhook()">儲存設定</button>
+  </details>
+</div>
+
+<script>
+  const savedUrl = localStorage.getItem('inventory_webhook_url');
+  if (savedUrl) document.getElementById('webhookUrl').value = savedUrl;
+
+  function saveWebhook(){
+    const url = document.getElementById('webhookUrl').value.trim();
+    localStorage.setItem('inventory_webhook_url', url);
+    showStatus('已儲存 Webhook 設定', true);
+  }
+
+  function showStatus(msg, ok){
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = ok ? 'ok' : 'err';
+  }
+
+  function buildTitle(){
+    const year = document.getElementById('year').value.trim();
+    const series = document.getElementById('series').value.trim();
+    const player = document.getElementById('playerName').value.trim();
+    const cardNo = document.getElementById('cardNo').value.trim();
+    const parts = [year, series, player, cardNo].filter(Boolean);
+    return parts.join(' ');
+  }
+
+  function updatePreview(){
+    const title = buildTitle();
+    document.getElementById('titlePreview').textContent = '標題預覽：' + (title || '（尚未輸入）');
+  }
+  ['year','series','playerName','cardNo'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updatePreview);
+  });
+
+  async function submitForm(){
+    const webhookUrl = document.getElementById('webhookUrl').value.trim();
+    const title = buildTitle();
+    const price = document.getElementById('price').value;
+
+    if(!webhookUrl){ showStatus('請先在下方設定 Webhook URL', false); return; }
+    if(!title){ showStatus('請至少輸入年份、系列、人名或卡號其中一項', false); return; }
+    if(!price){ showStatus('請輸入售價', false); return; }
+
+    const payload = {
+      "卡片名稱": title,
+      "年份": document.getElementById('year').value ? Number(document.getElementById('year').value) : null,
+      "系列": document.getElementById('series').value.trim(),
+      "種類": document.getElementById('type').value.trim(),
+      "人名": document.getElementById('playerName').value.trim(),
+      "卡號": document.getElementById('cardNo').value.trim(),
+      "運動類型": document.getElementById('sport').value,
+      "數量": document.getElementById('qty').value ? Number(document.getElementById('qty').value) : 1,
+      "購買金額": document.getElementById('cost').value ? Number(document.getElementById('cost').value) : 0,
+      "售價": Number(price),
+      "狀態": "待售",
+      "收款方式": document.getElementById('payment').value,
+      "備註": document.getElementById('notes').value.trim()
+    };
+
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true; btn.textContent = '送出中...';
+
+    try{
+      const res = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      showStatus('✅ 已新增：' + title, true);
+      ['year','series','playerName','cardNo','type','cost','price','notes'].forEach(id=>{
+        document.getElementById(id).value = '';
+      });
+      document.getElementById('qty').value = 1;
+      updatePreview();
+    }catch(err){
+      showStatus('❌ 送出失敗：' + err.message, false);
+    }finally{
+      btn.disabled = false; btn.textContent = '新增到庫存（狀態：待售）';
+    }
+  }
+</script>
+</body>
+</html>
