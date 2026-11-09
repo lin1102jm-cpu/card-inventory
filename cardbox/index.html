@@ -1,0 +1,432 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><style>:root{padding-block:env(safe-area-inset-top,0px) env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}</style></head><body><title>卡盒快拍</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 單欄工具，上方取景區（相機/影片），下方為已截取卡片的格狀清單 */
+:root{
+  --bg:#f3f4f2; --panel:#ffffff; --ink:#1b1f1d; --muted:#66706b; --line:#d8ddd9;
+  --accent:#0f7b5f; --accent-ink:#ffffff; --warn:#b4541a; --viewer:#121513;
+  --f-body:"Noto Sans TC",system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141716; --panel:#1d2120; --ink:#e7ebe9; --muted:#94a09a; --line:#323836;
+  --accent:#3fbf95; --accent-ink:#0b1a14; --warn:#e48a50; --viewer:#0a0c0b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141716; --panel:#1d2120; --ink:#e7ebe9; --muted:#94a09a; --line:#323836;
+  --accent:#3fbf95; --accent-ink:#0b1a14; --warn:#e48a50; --viewer:#0a0c0b; color-scheme:dark}
+html,body{background:var(--bg);color:var(--ink)}
+body{font-family:var(--f-body);font-size:15px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 40px}
+.wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:22px;margin:0;letter-spacing:.02em;text-wrap:balance}
+.status{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px}
+.tabs button{border:0;background:transparent;color:var(--muted);padding:10px;border-radius:7px;font:inherit;font-weight:500;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+.stage{position:relative;background:var(--viewer);border-radius:12px;overflow:hidden;aspect-ratio:3/4;max-height:62vh;width:100%;max-width:100%;margin:0 auto;display:flex;align-items:center;justify-content:center}
+.stage video,.stage canvas.ov{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.stage .hint{color:#cfd6d2;text-align:center;padding:24px;font-size:14px;max-width:34ch}
+.meter{position:absolute;left:12px;right:12px;bottom:12px;display:flex;align-items:center;gap:10px;font-family:var(--f-mono);font-size:12px;color:#e6ece9}
+.meter .bar{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden}
+.meter .bar i{display:block;height:100%;width:0;background:#3fbf95;transition:width .1s}
+.pill{padding:2px 8px;border-radius:99px;background:rgba(0,0,0,.55)}
+.pill.move{color:#ffb98a}.pill.ok{color:#7ee0bc}
+.flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .25s}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font:inherit;font-weight:500;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:10px 14px;border-radius:9px;cursor:pointer;min-height:44px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:focus-visible,.tabs button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.grow{flex:1 1 140px}
+label.btn{display:inline-flex;align-items:center;justify-content:center}
+[hidden]{display:none!important}
+details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+summary{cursor:pointer;font-weight:500}
+.set{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;margin-top:10px;font-size:14px}
+.set output{font-family:var(--f-mono);font-size:12px;color:var(--muted);min-width:5ch;text-align:right}
+.set input[type=range]{grid-column:1/-1;width:100%}
+.set label.chk{grid-column:1/-1;display:flex;gap:8px;align-items:center}
+.note{font-size:13px;color:var(--muted);margin:0}
+.note.warn{color:var(--warn)}
+.gal-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.gal-head h2{font-size:16px;margin:0}
+.count{font-family:var(--f-mono);font-size:13px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
+.card{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px;display:flex;flex-direction:column;gap:4px}
+.card img{width:100%;aspect-ratio:63/88;object-fit:contain;border-radius:4px;background:var(--bg);cursor:zoom-in}
+.card .meta{display:flex;justify-content:space-between;align-items:center;font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.card .meta button{border:0;background:none;color:var(--muted);font:inherit;cursor:pointer;padding:4px 6px;min-height:28px}
+.card .meta button:hover{color:var(--ink)}
+.empty{border:1px dashed var(--line);border-radius:10px;padding:22px;text-align:center;color:var(--muted);font-size:14px}
+dialog{border:0;padding:0;background:transparent;max-width:min(92vw,520px)}
+dialog::backdrop{background:rgba(0,0,0,.75)}
+dialog img{display:block;max-height:78vh;width:auto;margin:0 auto;border-radius:8px}
+dialog .row{justify-content:center;margin-top:10px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
+.toast.show{opacity:1}
+@media (prefers-reduced-motion:reduce){.flash,.toast,.meter .bar i{transition:none}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>卡盒快拍</h1>
+    <span class="status" id="cvStatus">影像引擎載入中…</span>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tabCam" aria-selected="true">即時相機</button>
+    <button role="tab" id="tabVid" aria-selected="false">匯入影片</button>
+  </div>
+
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas class="ov" id="overlay"></canvas>
+    <div class="hint" id="hint">手機放在拍照盒上方，按「開始」。每放一張卡、手移開約 0.7 秒後會自動拍下並裁切。</div>
+    <div class="meter" id="meter" hidden><span class="pill" id="state">等待</span><span class="bar"><i id="motionBar"></i></span></div>
+    <div class="flash" id="flash"></div>
+  </div>
+
+  <div class="row" id="camCtl">
+    <button class="btn primary grow" id="btnStart" disabled>開始</button>
+    <button class="btn grow" id="btnShot" disabled>手動拍一張</button>
+  </div>
+  <div class="row" id="vidCtl" hidden>
+    <label class="btn primary grow" for="fileIn" style="text-align:center">選擇影片…</label>
+    <input type="file" id="fileIn" accept="video/*" hidden>
+    <button class="btn grow" id="btnStopVid" disabled>停止分析</button>
+  </div>
+  <p class="note" id="modeNote"></p>
+
+  <details>
+    <summary>偵測設定</summary>
+    <div class="set">
+      <span>動作靈敏度（數字越小越敏感）</span><output id="oMove"></output>
+      <input type="range" id="sMove" min="3" max="15" step="0.5" value="6">
+      <span>手移開後等待時間</span><output id="oStill"></output>
+      <input type="range" id="sStill" min="3" max="20" step="1" value="7">
+      <span>靜止門檻（畫面雜訊容許）</span><output id="oNoise"></output>
+      <input type="range" id="sNoise" min="1" max="5" step="0.1" value="2.5">
+      <label class="chk"><input type="checkbox" id="cFirst" checked> 開始時盒內若已有卡，也拍下</label>
+      <label class="chk"><input type="checkbox" id="cDup" checked> 略過跟上一張相同的卡</label>
+    </div>
+  </details>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div class="gal-head"><h2>已截取</h2><span class="count" id="count">0 張</span></div>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty">還沒有卡片。開始拍攝或匯入一段放卡的影片。</div>
+    <div class="row">
+      <button class="btn primary grow" id="btnSaveAll" disabled>全部儲存</button>
+      <button class="btn grow" id="btnClear" disabled>清空</button>
+    </div>
+    <p class="note" id="clearConfirm" hidden>再按一次「清空」確認刪除全部。</p>
+  </section>
+</div>
+
+<dialog id="dlg">
+  <img id="dlgImg" alt="卡片預覽">
+  <div class="row">
+    <button class="btn" id="dlgRot">旋轉 90°</button>
+    <button class="btn primary" id="dlgSave">儲存這張</button>
+    <button class="btn" id="dlgClose">關閉</button>
+  </div>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+var Module = { onRuntimeInitialized(){ window.__cvReady && window.__cvReady(); } };
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js" id="cvScript"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const video=$('video'), overlay=$('overlay'), octx=overlay.getContext('2d');
+const S = { mode:'cam', running:false, stream:null, cv:null, cards:[], seq:0, lastQuad:null, stopVid:false };
+const CARD_RATIO = 88/63;
+
+/* ---------- settings ---------- */
+const sets = [['sMove','oMove',v=>v],['sStill','oStill',v=>(v/10).toFixed(1)+' 秒'],['sNoise','oNoise',v=>v]];
+sets.forEach(([s,o,f])=>{ const u=()=>$(o).textContent=f(+$(s).value); $(s).addEventListener('input',u); u(); });
+const cfg = () => ({ move:+$('sMove').value, still:+$('sStill').value, noise:+$('sNoise').value, first:$('cFirst').checked, dup:$('cDup').checked });
+
+/* ---------- OpenCV load ---------- */
+function cvOk(c){ S.cv=c; $('cvStatus').textContent='影像引擎就緒'; $('btnStart').disabled=false; }
+window.__cvReady = () => { if(!S.cv && window.cv && window.cv.Mat) cvOk(window.cv); };
+// 不 await cv：舊版 emscripten 物件自帶 then()，await 會無限遞迴
+const poll = setInterval(() => {
+  const c = window.cv;
+  if(c && c.Mat && c.imread){ clearInterval(poll); if(!S.cv) cvOk(c); }
+}, 250);
+$('cvScript').addEventListener('error',()=>{ $('cvStatus').textContent='影像引擎載入失敗，請重新整理'; });
+
+/* ---------- helpers ---------- */
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2200); }
+function flash(){ const f=$('flash'); f.style.opacity=.7; setTimeout(()=>f.style.opacity=0,90); }
+function stamp(){ const d=new Date(),p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
+const session = stamp();
+
+// motion sampler: small grayscale frame
+const mc=document.createElement('canvas'), mctx=mc.getContext('2d',{willReadFrequently:true});
+let prevSmall=null;
+function sampleMotion(src,w,h){
+  mc.width=96; mc.height=Math.max(1,Math.round(96*h/w));
+  mctx.drawImage(src,0,0,mc.width,mc.height);
+  const d=mctx.getImageData(0,0,mc.width,mc.height).data, n=d.length/4, g=new Float32Array(n);
+  for(let i=0;i<n;i++) g[i]=d[i*4]*.299+d[i*4+1]*.587+d[i*4+2]*.114;
+  let diff=0;
+  if(prevSmall && prevSmall.length===n){ for(let i=0;i<n;i++) diff+=Math.abs(g[i]-prevSmall[i]); diff/=n; } else diff=-1;
+  prevSmall=g; return diff;
+}
+
+/* ---------- detector state machine ---------- */
+function makeDetector(onCapture){
+  let moving=false, still=0, first=true;
+  return function step(diff){
+    const c=cfg();
+    if(diff<0) return 'wait';
+    if(first){ // initial: wait for stillness, then capture whatever is there
+      still = diff<c.noise ? still+1 : 0;
+      if(diff>c.move){ first=false; moving=true; still=0; return 'move'; }
+      if(still>=c.still){ first=false; still=0; if(c.first) onCapture(true); return 'ok'; }
+      return 'wait';
+    }
+    if(diff>c.move){ moving=true; still=0; return 'move'; }
+    if(moving){
+      still = diff<c.noise ? still+1 : 0;
+      if(still>=c.still){ moving=false; still=0; onCapture(false); return 'ok'; }
+      return 'settle';
+    }
+    return 'idle';
+  };
+}
+function showState(st,diff){
+  const el=$('state'), map={wait:'準備中',move:'偵測到動作',settle:'等待穩定',idle:'待命，放下一張',ok:'已拍下'};
+  el.textContent=map[st]||st; el.className='pill '+(st==='move'||st==='settle'?'move':'ok');
+  $('motionBar').style.width=Math.min(100,Math.max(0,diff)*3)+'%';
+}
+
+/* ---------- card detection (OpenCV) ---------- */
+function orderQuad(pts){
+  const s=pts.map(p=>p[0]+p[1]), d=pts.map(p=>p[1]-p[0]);
+  const tl=pts[s.indexOf(Math.min(...s))], br=pts[s.indexOf(Math.max(...s))];
+  const tr=pts[d.indexOf(Math.min(...d))], bl=pts[d.indexOf(Math.max(...d))];
+  return [tl,tr,br,bl];
+}
+function findCard(src){ // src: cv.Mat RGBA full res. returns quad in full-res coords or null
+  const cv=S.cv, scale=480/src.cols;
+  const sm=new cv.Mat(), g=new cv.Mat(), e=new cv.Mat(), k=cv.Mat.ones(3,3,cv.CV_8U);
+  const cs=new cv.MatVector(), hier=new cv.Mat();
+  let best=null, bestA=0;
+  try{
+    cv.resize(src,sm,new cv.Size(480,Math.round(src.rows*scale)),0,0,cv.INTER_AREA);
+    cv.cvtColor(sm,g,cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(g,g,new cv.Size(5,5),0);
+    cv.Canny(g,e,30,90);
+    cv.dilate(e,e,k,new cv.Point(-1,-1),2);
+    cv.findContours(e,cs,hier,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+    const minA=0.08*sm.rows*sm.cols;
+    for(let i=0;i<cs.size();i++){
+      const c=cs.get(i), a=cv.contourArea(c);
+      if(a<minA||a<=bestA){ c.delete(); continue; }
+      const r=cv.minAreaRect(c), w=r.size.width, h=r.size.height;
+      const ar=Math.max(w,h)/Math.max(1,Math.min(w,h));
+      if(ar>1.2&&ar<1.6){
+        const hull=new cv.Mat(), ap=new cv.Mat();
+        cv.convexHull(c,hull,false,true);
+        cv.approxPolyDP(hull,ap,0.02*cv.arcLength(hull,true),true);
+        let pts;
+        if(ap.rows===4){ pts=[]; for(let j=0;j<4;j++) pts.push([ap.data32S[j*2],ap.data32S[j*2+1]]); }
+        else pts=cv.RotatedRect.points(r).map(p=>[p.x,p.y]);
+        best=pts.map(p=>[p[0]/scale,p[1]/scale]); bestA=a;
+        hull.delete(); ap.delete();
+      }
+      c.delete();
+    }
+  } finally { sm.delete(); g.delete(); e.delete(); k.delete(); cs.delete(); hier.delete(); }
+  return best ? orderQuad(best) : null;
+}
+function warp(src,q){
+  const cv=S.cv, dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+  const wTop=(dist(q[0],q[1])+dist(q[3],q[2]))/2, hSide=(dist(q[0],q[3])+dist(q[1],q[2]))/2;
+  const land = wTop>hSide;
+  const shortSide=Math.round(Math.min(wTop,hSide)), longSide=Math.round(shortSide*CARD_RATIO);
+  const W=land?longSide:shortSide, H=land?shortSide:longSide;
+  const sp=cv.matFromArray(4,1,cv.CV_32FC2,q.flat());
+  const dp=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,W,0,W,H,0,H]);
+  const M=cv.getPerspectiveTransform(sp,dp), out=new cv.Mat();
+  cv.warpPerspective(src,out,M,new cv.Size(W,H),cv.INTER_CUBIC,cv.BORDER_REPLICATE);
+  const can=document.createElement('canvas'); cv.imshow(can,out);
+  sp.delete(); dp.delete(); M.delete(); out.delete();
+  return can;
+}
+function thumbSig(can){
+  const t=document.createElement('canvas'); t.width=32; t.height=45;
+  const x=t.getContext('2d'); x.drawImage(can,0,0,32,45);
+  const d=x.getImageData(0,0,32,45).data, g=new Float32Array(32*45);
+  for(let i=0;i<g.length;i++) g[i]=d[i*4]*.299+d[i*4+1]*.587+d[i*4+2]*.114;
+  return g;
+}
+function sigDiff(a,b){ let s=0; for(let i=0;i<a.length;i++) s+=Math.abs(a[i]-b[i]); return s/a.length; }
+
+const full=document.createElement('canvas'), fctx=full.getContext('2d',{willReadFrequently:true});
+async function capture(source,w,h,{initial=false,manual=false}={}){
+  if(!S.cv) return;
+  full.width=w; full.height=h; fctx.drawImage(source,0,0,w,h);
+  const src=S.cv.imread(full);
+  let q;
+  try{ q=findCard(src); if(!q && !initial) q=S.lastQuad; if(!q){ if(manual) toast('找不到卡片邊緣'); return; }
+       if(!initial || q) S.lastQuad=q;
+       var can=warp(src,q);
+  } finally { src.delete(); }
+  drawQuad(q,w,h);
+  const sig=thumbSig(can), last=S.cards[S.cards.length-1];
+  if(!manual && cfg().dup && last && sigDiff(sig,last.sig)<12){ toast('跟上一張相同，略過'); return; }
+  const blob=await new Promise(r=>can.toBlob(r,'image/jpeg',0.92));
+  S.seq++;
+  const name=`card_${session}_${String(S.seq).padStart(3,'0')}.jpg`;
+  S.cards.push({ name, blob, url:URL.createObjectURL(blob), sig, w:can.width, h:can.height });
+  flash(); render();
+}
+function drawQuad(q,w,h){
+  const r=overlay.getBoundingClientRect(); overlay.width=r.width*devicePixelRatio; overlay.height=r.height*devicePixelRatio;
+  const s=Math.min(overlay.width/w,overlay.height/h), ox=(overlay.width-w*s)/2, oy=(overlay.height-h*s)/2;
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  octx.strokeStyle='#3fbf95'; octx.lineWidth=3*devicePixelRatio; octx.beginPath();
+  q.forEach((p,i)=>{ const x=ox+p[0]*s,y=oy+p[1]*s; i?octx.lineTo(x,y):octx.moveTo(x,y); }); octx.closePath(); octx.stroke();
+  clearTimeout(drawQuad._h); drawQuad._h=setTimeout(()=>octx.clearRect(0,0,overlay.width,overlay.height),1200);
+}
+
+/* ---------- gallery ---------- */
+let viewing=-1;
+function render(){
+  const g=$('grid'); g.textContent='';
+  S.cards.forEach((c,i)=>{
+    const el=document.createElement('div'); el.className='card';
+    const img=document.createElement('img'); img.src=c.url; img.alt=`卡片 ${i+1}`; img.onclick=()=>openDlg(i);
+    const m=document.createElement('div'); m.className='meta';
+    const n=document.createElement('span'); n.textContent=String(i+1).padStart(3,'0');
+    const del=document.createElement('button'); del.textContent='刪除'; del.setAttribute('aria-label',`刪除卡片 ${i+1}`);
+    del.onclick=()=>{ URL.revokeObjectURL(c.url); S.cards.splice(i,1); render(); };
+    m.append(n,del); el.append(img,m); g.append(el);
+  });
+  $('count').textContent=S.cards.length+' 張';
+  $('empty').hidden=S.cards.length>0;
+  $('btnSaveAll').disabled=$('btnClear').disabled=!S.cards.length;
+}
+function openDlg(i){ viewing=i; $('dlgImg').src=S.cards[i].url; $('dlg').showModal(); }
+$('dlgClose').onclick=()=>$('dlg').close();
+$('dlgSave').onclick=()=>saveFiles([S.cards[viewing]]);
+$('dlgRot').onclick=async()=>{
+  const c=S.cards[viewing], im=await createImageBitmap(c.blob), can=document.createElement('canvas');
+  can.width=im.height; can.height=im.width; const x=can.getContext('2d');
+  x.translate(can.width/2,can.height/2); x.rotate(Math.PI/2); x.drawImage(im,-im.width/2,-im.height/2);
+  c.blob=await new Promise(r=>can.toBlob(r,'image/jpeg',0.92)); URL.revokeObjectURL(c.url); c.url=URL.createObjectURL(c.blob);
+  $('dlgImg').src=c.url; render();
+};
+let clearArmed=false;
+$('btnClear').onclick=()=>{
+  if(!clearArmed){ clearArmed=true; $('clearConfirm').hidden=false; setTimeout(()=>{clearArmed=false;$('clearConfirm').hidden=true;},4000); return; }
+  S.cards.forEach(c=>URL.revokeObjectURL(c.url)); S.cards=[]; clearArmed=false; $('clearConfirm').hidden=true; render();
+};
+
+/* ---------- saving ---------- */
+let downloads=null;
+if(window.claude && window.claude.use){ window.claude.use('downloads').then(d=>downloads=d).catch(()=>{}); }
+async function saveFiles(list){
+  if(!list.length) return;
+  const files=list.map(c=>new File([c.blob],c.name,{type:'image/jpeg'}));
+  // 1) 手機分享表（iPhone 可直接「儲存影像」到照片）
+  try{
+    if(!downloads && navigator.canShare && navigator.canShare({files})){ await navigator.share({files}); return; }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  // 2) Claude 內的下載
+  if(downloads){
+    try{
+      if(list.length===1){ await downloads.save({filename:list[0].name,data:list[0].blob}); }
+      else { const z=await zipOf(list); await downloads.save({filename:`cards_${session}.zip`,data:z}); }
+      toast('已儲存'); return;
+    }catch(e){ if(e && e.code==='declined') return; toast('無法儲存：'+(e && e.message || '未知錯誤')); return; }
+  }
+  // 3) 一般瀏覽器下載
+  const blob = list.length===1 ? list[0].blob : await zipOf(list);
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download = list.length===1 ? list[0].name : `cards_${session}.zip`; document.body.append(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+async function zipOf(list){ const z=new JSZip(); list.forEach(c=>z.file(c.name,c.blob)); return z.generateAsync({type:'blob'}); }
+$('btnSaveAll').onclick=()=>saveFiles(S.cards);
+
+/* ---------- camera mode ---------- */
+let wakeLock=null, camTimer=null;
+async function startCam(){
+  try{
+    S.stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:3840},height:{ideal:2160}}});
+  }catch(e){
+    $('modeNote').textContent='無法開啟相機（在 Claude 裡面會被封鎖）。請改用「匯入影片」，或用獨立網址開啟此工具。';
+    $('modeNote').className='note warn'; return;
+  }
+  video.srcObject=S.stream; await video.play();
+  $('hint').hidden=true; $('meter').hidden=false; S.running=true; prevSmall=null;
+  $('btnStart').textContent='停止'; $('btnShot').disabled=false;
+  try{ wakeLock=await navigator.wakeLock?.request('screen'); }catch(_){}
+  const det=makeDetector(init=>capture(video,video.videoWidth,video.videoHeight,{initial:init}));
+  camTimer=setInterval(()=>{
+    if(!video.videoWidth) return;
+    const d=sampleMotion(video,video.videoWidth,video.videoHeight);
+    showState(det(d),d);
+  },100);
+}
+function stopCam(){
+  clearInterval(camTimer); S.running=false;
+  S.stream?.getTracks().forEach(t=>t.stop()); S.stream=null; video.srcObject=null;
+  try{ wakeLock?.release(); }catch(_){}
+  $('btnStart').textContent='開始'; $('btnShot').disabled=true; $('meter').hidden=true; $('hint').hidden=false;
+}
+$('btnStart').onclick=()=> S.running?stopCam():startCam();
+$('btnShot').onclick=()=>capture(video,video.videoWidth,video.videoHeight,{manual:true});
+
+/* ---------- video file mode ---------- */
+function seek(t){ return new Promise(r=>{ const h=()=>{video.removeEventListener('seeked',h);r();}; video.addEventListener('seeked',h); video.currentTime=t; }); }
+$('fileIn').onchange=async e=>{
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  if(!S.cv){ toast('影像引擎還在載入，請稍候'); return; }
+  video.srcObject=null; video.src=URL.createObjectURL(f); video.muted=true;
+  await new Promise((res,rej)=>{ video.onloadedmetadata=res; video.onerror=()=>rej(); }).catch(()=>{});
+  if(!video.duration){ toast('這個影片格式無法讀取'); return; }
+  $('hint').hidden=true; $('meter').hidden=false; $('btnStopVid').disabled=false; S.stopVid=false; prevSmall=null;
+  let pending=null;
+  const det2=makeDetector(init=>{ pending={init}; });
+  const before=S.cards.length;
+  for(let t=0;t<video.duration && !S.stopVid;t+=0.1){
+    await seek(t);
+    const d=sampleMotion(video,video.videoWidth,video.videoHeight);
+    const st=det2(d); showState(st,d);
+    $('modeNote').className='note'; $('modeNote').textContent=`分析中 ${t.toFixed(1)} / ${video.duration.toFixed(1)} 秒`;
+    if(pending){ await capture(video,video.videoWidth,video.videoHeight,{initial:pending.init}); pending=null; }
+  }
+  $('btnStopVid').disabled=true; $('meter').hidden=true;
+  $('modeNote').textContent=`分析完成，新增 ${S.cards.length-before} 張。`;
+};
+$('btnStopVid').onclick=()=>{ S.stopVid=true; };
+
+/* ---------- tabs ---------- */
+function setMode(m){
+  S.mode=m; $('tabCam').setAttribute('aria-selected',m==='cam'); $('tabVid').setAttribute('aria-selected',m==='vid');
+  $('camCtl').hidden=m!=='cam'; $('vidCtl').hidden=m!=='vid';
+  $('modeNote').className='note'; $('modeNote').textContent='';
+  if(m!=='cam' && S.running) stopCam();
+  $('hint').textContent = m==='cam'
+    ? '手機放在拍照盒上方，按「開始」。每放一張卡、手移開約 0.7 秒後會自動拍下並裁切。'
+    : '用手機相機把放卡的過程錄成一段影片，再選取它。程式會找出每張卡放好的瞬間並裁切。';
+  $('hint').hidden=false; video.removeAttribute('src');
+}
+$('tabCam').onclick=()=>setMode('cam'); $('tabVid').onclick=()=>setMode('vid');
+if(!navigator.mediaDevices?.getUserMedia) setMode('vid');
+render();
+})();
+</script>
+</body></html>
