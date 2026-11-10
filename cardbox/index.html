@@ -60,6 +60,16 @@ summary{cursor:pointer;font-weight:500}
 .card .meta{display:flex;justify-content:space-between;align-items:center;font-family:var(--f-mono);font-size:11px;color:var(--muted)}
 .card .meta button{border:0;background:none;color:var(--muted);font:inherit;cursor:pointer;padding:4px 6px;min-height:28px}
 .card .meta button:hover{color:var(--ink)}
+.btn.sm{min-height:34px;padding:6px 10px;font-size:13px}
+.adj{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.adj-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.adj-head h3{font-size:15px;margin:0}
+.adj-body{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr);gap:16px;align-items:start}
+.adj-prev{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.adj-prev canvas{width:100%;height:auto;border-radius:6px;background:var(--bg);aspect-ratio:63/88;object-fit:contain}
+.adj-set{margin-top:0}
+.card.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+@media (max-width:460px){.adj-body{grid-template-columns:minmax(0,110px) minmax(0,1fr);gap:12px}}
 .empty{border:1px dashed var(--line);border-radius:10px;padding:22px;text-align:center;color:var(--muted);font-size:14px}
 dialog{border:0;padding:0;background:transparent;max-width:min(92vw,520px)}
 dialog::backdrop{background:rgba(0,0,0,.75)}
@@ -116,6 +126,28 @@ dialog .row{justify-content:center;margin-top:10px}
 
   <section style="display:flex;flex-direction:column;gap:10px">
     <div class="gal-head"><h2>已截取</h2><span class="count" id="count">0 張</span></div>
+    <div class="adj" id="adjBox" hidden>
+      <div class="adj-head"><h3>批次調整</h3><button class="btn sm" id="adjReset">全部歸零</button></div>
+      <div class="adj-body">
+        <div class="adj-prev">
+          <canvas id="adjPrev" aria-label="調整預覽"></canvas>
+          <button class="btn sm" id="adjCompare">按住看原圖</button>
+        </div>
+        <div class="set adj-set">
+          <span>亮度</span><output id="oBri"></output>
+          <input type="range" id="aBri" min="-100" max="100" step="1" value="0">
+          <span>對比</span><output id="oCon"></output>
+          <input type="range" id="aCon" min="-100" max="100" step="1" value="0">
+          <span>飽和度</span><output id="oSat"></output>
+          <input type="range" id="aSat" min="-100" max="100" step="1" value="0">
+          <span>暗部（往右提亮陰影）</span><output id="oSha"></output>
+          <input type="range" id="aSha" min="-100" max="100" step="1" value="0">
+          <span>亮部（往左壓反光）</span><output id="oHig"></output>
+          <input type="range" id="aHig" min="-100" max="100" step="1" value="0">
+        </div>
+      </div>
+      <p class="note">調整會套用到全部卡片，之後拍的也一樣。原圖保留，儲存時才輸出調整後的照片。點卡片可以換預覽那張。</p>
+    </div>
     <div class="grid" id="grid"></div>
     <div class="empty" id="empty">還沒有卡片。開始拍攝或匯入一段放卡的影片。</div>
     <div class="row">
@@ -145,7 +177,7 @@ var Module = { onRuntimeInitialized(){ window.__cvReady && window.__cvReady(); }
 (() => {
 const $ = id => document.getElementById(id);
 const video=$('video'), overlay=$('overlay'), octx=overlay.getContext('2d');
-const S = { mode:'cam', running:false, stream:null, cv:null, cards:[], seq:0, lastQuad:null, stopVid:false };
+const S = { sel:-1, mode:'cam', running:false, stream:null, cv:null, cards:[], seq:0, lastQuad:null, stopVid:false };
 const CARD_RATIO = 88/63;
 
 /* ---------- settings ---------- */
@@ -285,11 +317,12 @@ async function capture(source,w,h,{initial=false,manual=false}={}){
   drawQuad(q,w,h);
   const sig=thumbSig(can), last=S.cards[S.cards.length-1];
   if(!manual && cfg().dup && last && sigDiff(sig,last.sig)<12){ toast('跟上一張相同，略過'); return; }
-  const blob=await new Promise(r=>can.toBlob(r,'image/jpeg',0.92));
+  const blob=await new Promise(r=>can.toBlob(r,'image/jpeg',0.95));
   S.seq++;
   const name=`card_${session}_${String(S.seq).padStart(3,'0')}.jpg`;
-  S.cards.push({ name, blob, url:URL.createObjectURL(blob), sig, w:can.width, h:can.height });
-  flash(); render();
+  const c={ name, blob, bmp:await createImageBitmap(can), sig, url:'', out:null, outKey:'' };
+  S.cards.push(c); S.sel=S.cards.length-1;
+  makeThumb(c); flash(); render(); drawPreview(); queueOutputs();
 }
 function drawQuad(q,w,h){
   const r=overlay.getBoundingClientRect(); overlay.width=r.width*devicePixelRatio; overlay.height=r.height*devicePixelRatio;
@@ -300,37 +333,117 @@ function drawQuad(q,w,h){
   clearTimeout(drawQuad._h); drawQuad._h=setTimeout(()=>octx.clearRect(0,0,overlay.width,overlay.height),1200);
 }
 
+/* ---------- batch adjustments ---------- */
+const ADJ=[['aBri','oBri'],['aCon','oCon'],['aSat','oSat'],['aSha','oSha'],['aHig','oHig']];
+try{ const sv=JSON.parse(localStorage.getItem('cardbox.adj')||'null'); if(sv) ADJ.forEach(([id])=>{ if(id in sv) $(id).value=sv[id]; }); }catch(_){}
+function adj(){ return { bri:+$('aBri').value/100, con:+$('aCon').value/100, sat:+$('aSat').value/100, sha:+$('aSha').value/100, hig:+$('aHig').value/100 }; }
+function adjKey(){ return ADJ.map(([id])=>$(id).value).join(','); }
+function isNeutral(a){ return !a.bri && !a.con && !a.sat && !a.sha && !a.hig; }
+// 逐像素處理：暗部/亮部（依亮度加權）→ 亮度 → 對比 → 飽和度
+function applyAdj(data,a){
+  const cf=1+a.con*0.8, sf=1+a.sat, sh=a.sha*0.45, hi=a.hig*0.45, br=a.bri*0.35;
+  for(let i=0;i<data.length;i+=4){
+    let r=data[i]/255, g=data[i+1]/255, b=data[i+2]/255;
+    const L=0.2126*r+0.7152*g+0.0722*b;
+    const ws=(1-L)*(1-L)*(1-L), wh=L*L*L;   // 暗部權重、亮部權重
+    let d=sh*ws + hi*wh + br;
+    r+=d; g+=d; b+=d;
+    r=(r-0.5)*cf+0.5; g=(g-0.5)*cf+0.5; b=(b-0.5)*cf+0.5;
+    const L2=0.2126*r+0.7152*g+0.0722*b;
+    r=L2+(r-L2)*sf; g=L2+(g-L2)*sf; b=L2+(b-L2)*sf;
+    data[i]=r*255; data[i+1]=g*255; data[i+2]=b*255; // Uint8Clamped 自動夾 0–255
+  }
+}
+function adjCanvas(bmp,maxSide,a,raw){
+  const k=Math.min(1,maxSide/Math.max(bmp.width,bmp.height));
+  const can=document.createElement('canvas'); can.width=Math.round(bmp.width*k); can.height=Math.round(bmp.height*k);
+  const x=can.getContext('2d',{willReadFrequently:true}); x.drawImage(bmp,0,0,can.width,can.height);
+  if(!raw && !isNeutral(a)){ const im=x.getImageData(0,0,can.width,can.height); applyAdj(im.data,a); x.putImageData(im,0,0); }
+  return can;
+}
+function makeThumb(c){ c.url=adjCanvas(c.bmp,300,adj()).toDataURL('image/jpeg',0.85); }
+let showRaw=false;
+function drawPreview(){
+  $('adjBox').hidden=!S.cards.length;
+  const c=S.cards[S.sel]; if(!c) return;
+  const src=adjCanvas(c.bmp,560,adj(),showRaw), pv=$('adjPrev');
+  pv.width=src.width; pv.height=src.height; pv.getContext('2d').drawImage(src,0,0);
+}
+// 背景先算好全尺寸輸出，按儲存時才能馬上跳分享選單
+let outTimer=null;
+function queueOutputs(){
+  clearTimeout(outTimer);
+  outTimer=setTimeout(async()=>{
+    const key=adjKey(), a=adj();
+    for(const c of S.cards){
+      if(c.outKey===key) continue;
+      if(isNeutral(a)){ c.out=c.blob; c.outKey=key; continue; }
+      const can=adjCanvas(c.bmp,99999,a);
+      const b=await new Promise(r=>can.toBlob(r,'image/jpeg',0.92));
+      if(adjKey()!==key) return; // 中途又改了，交給下一輪
+      c.out=b; c.outKey=key;
+      await new Promise(r=>setTimeout(r,0));
+    }
+  },400);
+}
+async function outputOf(c){
+  const key=adjKey();
+  if(c.outKey===key && c.out) return c.out;
+  const a=adj(); if(isNeutral(a)) return c.blob;
+  const can=adjCanvas(c.bmp,99999,a);
+  c.out=await new Promise(r=>can.toBlob(r,'image/jpeg',0.92)); c.outKey=key; return c.out;
+}
+let thumbTimer=null, prevRaf=0;
+ADJ.forEach(([id,o])=>{
+  const u=()=>{ const v=+$(id).value; $(o).textContent=(v>0?'+':'')+v; };
+  u();
+  $(id).addEventListener('input',()=>{
+    u();
+    cancelAnimationFrame(prevRaf); prevRaf=requestAnimationFrame(drawPreview);
+    clearTimeout(thumbTimer); thumbTimer=setTimeout(()=>{ S.cards.forEach(makeThumb); render(); },250);
+    queueOutputs();
+    try{ const sv={}; ADJ.forEach(([k])=>sv[k]=$(k).value); localStorage.setItem('cardbox.adj',JSON.stringify(sv)); }catch(_){}
+  });
+});
+$('adjReset').onclick=()=>{ ADJ.forEach(([id])=>{ $(id).value=0; $(id).dispatchEvent(new Event('input')); }); };
+const cmpOn=e=>{ e.preventDefault(); showRaw=true; drawPreview(); }, cmpOff=()=>{ if(showRaw){ showRaw=false; drawPreview(); } };
+$('adjCompare').addEventListener('pointerdown',cmpOn);
+['pointerup','pointerleave','pointercancel'].forEach(ev=>$('adjCompare').addEventListener(ev,cmpOff));
+
 /* ---------- gallery ---------- */
 let viewing=-1;
 function render(){
   const g=$('grid'); g.textContent='';
   S.cards.forEach((c,i)=>{
-    const el=document.createElement('div'); el.className='card';
-    const img=document.createElement('img'); img.src=c.url; img.alt=`卡片 ${i+1}`; img.onclick=()=>openDlg(i);
+    const el=document.createElement('div'); el.className='card'+(i===S.sel?' sel':'');
+    const img=document.createElement('img'); img.src=c.url; img.alt=`卡片 ${i+1}`;
+    img.onclick=()=>{ if(S.sel!==i){ S.sel=i; render(); drawPreview(); } else openDlg(i); };
+    img.title='點一下設為預覽，再點一下放大';
     const m=document.createElement('div'); m.className='meta';
     const n=document.createElement('span'); n.textContent=String(i+1).padStart(3,'0');
     const del=document.createElement('button'); del.textContent='刪除'; del.setAttribute('aria-label',`刪除卡片 ${i+1}`);
-    del.onclick=()=>{ URL.revokeObjectURL(c.url); S.cards.splice(i,1); render(); };
+    del.onclick=()=>{ S.cards.splice(i,1); if(S.sel>=S.cards.length) S.sel=S.cards.length-1; render(); drawPreview(); };
     m.append(n,del); el.append(img,m); g.append(el);
   });
   $('count').textContent=S.cards.length+' 張';
   $('empty').hidden=S.cards.length>0;
   $('btnSaveAll').disabled=$('btnClear').disabled=!S.cards.length;
 }
-function openDlg(i){ viewing=i; $('dlgImg').src=S.cards[i].url; $('dlg').showModal(); }
+function dlgShow(){ const c=S.cards[viewing]; $('dlgImg').src=adjCanvas(c.bmp,1200,adj()).toDataURL('image/jpeg',0.9); }
+function openDlg(i){ viewing=i; dlgShow(); $('dlg').showModal(); }
 $('dlgClose').onclick=()=>$('dlg').close();
 $('dlgSave').onclick=()=>saveFiles([S.cards[viewing]]);
 $('dlgRot').onclick=async()=>{
-  const c=S.cards[viewing], im=await createImageBitmap(c.blob), can=document.createElement('canvas');
+  const c=S.cards[viewing], im=c.bmp, can=document.createElement('canvas');
   can.width=im.height; can.height=im.width; const x=can.getContext('2d');
   x.translate(can.width/2,can.height/2); x.rotate(Math.PI/2); x.drawImage(im,-im.width/2,-im.height/2);
-  c.blob=await new Promise(r=>can.toBlob(r,'image/jpeg',0.92)); URL.revokeObjectURL(c.url); c.url=URL.createObjectURL(c.blob);
-  $('dlgImg').src=c.url; render();
+  c.blob=await new Promise(r=>can.toBlob(r,'image/jpeg',0.95)); c.bmp=await createImageBitmap(can); c.outKey='';
+  makeThumb(c); dlgShow(); render(); drawPreview(); queueOutputs();
 };
 let clearArmed=false;
 $('btnClear').onclick=()=>{
   if(!clearArmed){ clearArmed=true; $('clearConfirm').hidden=false; setTimeout(()=>{clearArmed=false;$('clearConfirm').hidden=true;},4000); return; }
-  S.cards.forEach(c=>URL.revokeObjectURL(c.url)); S.cards=[]; clearArmed=false; $('clearConfirm').hidden=true; render();
+  S.cards=[]; S.sel=-1; clearArmed=false; $('clearConfirm').hidden=true; render(); drawPreview();
 };
 
 /* ---------- saving ---------- */
@@ -338,11 +451,16 @@ let downloads=null;
 if(window.claude && window.claude.use){ window.claude.use('downloads').then(d=>downloads=d).catch(()=>{}); }
 async function saveFiles(list){
   if(!list.length) return;
+  const outs=[]; for(const c of list) outs.push({name:c.name, blob:await outputOf(c)});
+  list=outs;
   const files=list.map(c=>new File([c.blob],c.name,{type:'image/jpeg'}));
   // 1) 手機分享表（iPhone 可直接「儲存影像」到照片）
   try{
     if(!downloads && navigator.canShare && navigator.canShare({files})){ await navigator.share({files}); return; }
-  }catch(e){ if(e && e.name==='AbortError') return; }
+  }catch(e){
+    if(e && e.name==='AbortError') return;
+    if(e && e.name==='NotAllowedError'){ toast('照片處理好了，請再按一次儲存'); return; }
+  }
   // 2) Claude 內的下載
   if(downloads){
     try{
