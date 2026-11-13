@@ -27,7 +27,14 @@ h1{font-size:22px;margin:0;letter-spacing:.02em;text-wrap:balance}
 .tabs button{border:0;background:transparent;color:var(--muted);padding:10px;border-radius:7px;font:inherit;font-weight:500;cursor:pointer}
 .tabs button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
 .stage{position:relative;background:var(--viewer);border-radius:12px;overflow:hidden;aspect-ratio:3/4;max-height:62vh;width:100%;max-width:100%;margin:0 auto;display:flex;align-items:center;justify-content:center}
+.stage .view{position:absolute;inset:0;transform-origin:50% 50%}
 .stage video,.stage canvas.ov{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#frameCan{touch-action:none}
+.zoomtag{position:absolute;top:10px;right:10px;font-family:var(--f-mono);font-size:12px;color:#fff;background:rgba(0,0,0,.55);padding:2px 8px;border-radius:99px;pointer-events:none}
+.frame-ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.frame-ctl .zoom{display:flex;align-items:center;gap:8px;flex:1 1 180px;font-size:13px;color:var(--muted)}
+.frame-ctl .zoom input{flex:1}
+.btn.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .stage .hint{color:#cfd6d2;text-align:center;padding:24px;font-size:14px;max-width:34ch}
 .meter{position:absolute;left:12px;right:12px;bottom:12px;display:flex;align-items:center;gap:10px;font-family:var(--f-mono);font-size:12px;color:#e6ece9}
 .meter .bar{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden}
@@ -105,8 +112,12 @@ dialog .row{justify-content:center;margin-top:10px}
   </div>
 
   <div class="stage" id="stage">
-    <video id="video" playsinline muted></video>
-    <canvas class="ov" id="overlay"></canvas>
+    <div class="view" id="view">
+      <video id="video" playsinline muted></video>
+      <canvas class="ov" id="overlay"></canvas>
+      <canvas class="ov" id="frameCan" hidden></canvas>
+    </div>
+    <span class="zoomtag" id="zoomTag" hidden>1.0×</span>
     <div class="hint" id="hint">手機放在拍照盒上方，按「開始」。每放一張卡、手移開約 0.7 秒後會自動拍下並裁切。</div>
     <div class="meter" id="meter" hidden><span class="pill" id="state">等待</span><span class="bar"><i id="motionBar"></i></span></div>
     <div class="flash" id="flash"></div>
@@ -120,6 +131,13 @@ dialog .row{justify-content:center;margin-top:10px}
     <button class="btn primary grow" id="btnStart" disabled>開始</button>
     <button class="btn grow" id="btnShot" disabled>手動拍一張</button>
   </div>
+  <div class="frame-ctl" id="frameCtl" hidden>
+    <button class="btn sm" id="btnFrame" aria-pressed="false">圖框裁切：關</button>
+    <button class="btn sm" id="btnFrameRot" disabled>直／橫</button>
+    <button class="btn sm" id="btnFrameReset" disabled>圖框置中</button>
+    <label class="zoom" for="zoomIn">放大 <input type="range" id="zoomIn" min="1" max="4" step="0.1" value="1"> <output id="oZoom">1.0×</output></label>
+  </div>
+  <p class="note" id="frameNote" hidden>拖動圖框移動，拖四個角等比例縮放（固定卡片比例 63:88）。兩指可以縮放畫面。開著圖框時，拍照會照圖框裁切，不做自動偵測。</p>
   <div class="row" id="vidCtl" hidden>
     <label class="btn primary grow" for="fileIn" style="text-align:center">選擇影片…</label>
     <input type="file" id="fileIn" accept="video/*" hidden>
@@ -256,7 +274,7 @@ function makeDetector(onCapture){
   };
 }
 function showState(st,diff){
-  const el=$('state'), map={manual:'手動模式・按快門或點畫面',wait:'準備中',move:'偵測到動作',settle:'等待穩定',idle:'待命，放下一張',ok:'已拍下'};
+  const el=$('state'), map={manualF:'圖框模式・按「拍照」',manual:'手動模式・按快門或點畫面',wait:'準備中',move:'偵測到動作',settle:'等待穩定',idle:'待命，放下一張',ok:'已拍下'};
   el.textContent=map[st]||st; el.className='pill '+(st==='move'||st==='settle'?'move':'ok');
   $('motionBar').style.width=Math.min(100,Math.max(0,diff)*3)+'%';
 }
@@ -330,7 +348,7 @@ async function capture(source,w,h,{initial=false,manual=false}={}){
   full.width=w; full.height=h; fctx.drawImage(source,0,0,w,h);
   const src=S.cv.imread(full);
   let q;
-  try{ q=findCard(src); if(!q && !initial) q=S.lastQuad; if(!q){ if(!manual) return; q=[[0,0],[w,0],[w,h],[0,h]]; var whole=true; toast('找不到卡片邊緣，先存整張畫面'); }
+  try{ q = S.frameOn ? frameQuad(w,h) : findCard(src); if(!q && !initial) q=S.lastQuad; if(!q){ if(!manual) return; q=[[0,0],[w,0],[w,h],[0,h]]; var whole=true; toast('找不到卡片邊緣，先存整張畫面'); }
        if(!initial || q) S.lastQuad=q;
        var can=warp(src,q,typeof whole!=='undefined');
   } finally { src.delete(); }
@@ -348,7 +366,7 @@ async function capture(source,w,h,{initial=false,manual=false}={}){
   if(gr.ok9 && c.center.conf>=0.6) toast(`★ 置中 ${gr.lrTxt}・${gr.tbTxt}，可能有 PSA 9 以上（自動估計，點開確認）`);
 }
 function drawQuad(q,w,h){
-  const r=overlay.getBoundingClientRect(); overlay.width=r.width*devicePixelRatio; overlay.height=r.height*devicePixelRatio;
+  overlay.width=overlay.offsetWidth*devicePixelRatio; overlay.height=overlay.offsetHeight*devicePixelRatio;
   const s=Math.min(overlay.width/w,overlay.height/h), ox=(overlay.width-w*s)/2, oy=(overlay.height-h*s)/2;
   octx.clearRect(0,0,overlay.width,overlay.height);
   octx.strokeStyle='#3fbf95'; octx.lineWidth=3*devicePixelRatio; octx.beginPath();
@@ -588,6 +606,7 @@ function camButtons(){
   $('stage').classList.toggle('tap', man);
   $('meter').hidden = !on;
   $('hint').hidden = on;
+  if(typeof frameUI==='function') frameUI();
   if(!on && S.mode==='cam') $('hint').textContent = quickBusy ? '拍照中，相機稍後自動關閉…' : man
     ? '手動模式：相機目前關閉。放好卡片後直接按「拍照」，會暫時開相機拍一張就關掉；要先對位就按「開啟預覽」。'
     : '手機放在拍照盒上方，按「開始」。每放一張卡、手移開約 0.7 秒後會自動拍下並裁切。';
@@ -610,7 +629,7 @@ async function startCam(){
   camTimer=setInterval(()=>{
     if(!video.videoWidth) return;
     const d=sampleMotion(video,video.videoWidth,video.videoHeight);
-    showState(S.capMode==='manual'?'manual':det(d),d);
+    showState(S.capMode==='manual'?(S.frameOn?'manualF':'manual'):det(d),d);
   },100);
 }
 function stopCam(){
@@ -647,6 +666,111 @@ function setCapMode(m){
 }
 document.querySelectorAll('#capMode button').forEach(b=>b.onclick=()=>setCapMode(b.dataset.m));
 
+/* ---------- 圖框裁切與預覽縮放 ---------- */
+const fc=$('frameCan'), fx=fc.getContext('2d');
+S.frameOn=false; S.zoom=1;
+// 圖框以影像像素比例保存：x,y,w 為佔影像寬度的比例，land=橫放
+S.frame={x:0.2,y:0.15,w:0.6,land:false};
+try{ const f=JSON.parse(localStorage.getItem('cardbox.frame')||'null'); if(f&&f.w) S.frame=f; if(localStorage.getItem('cardbox.frameOn')==='1') S.frameOn=true; }catch(_){}
+function vidSize(){ return [video.videoWidth||1920, video.videoHeight||1080]; }
+function frameRatio(){ return S.frame.land ? 63/88 : 88/63; } // 高/寬
+function frameRect(vw,vh){ // 影像像素
+  const w=S.frame.w*vw, h=w*frameRatio();
+  return {x:S.frame.x*vw, y:S.frame.y*vh, w, h};
+}
+function clampFrame(){
+  const [vw,vh]=vidSize(), f=S.frame;
+  const maxW=Math.min(1, vh/(vw*frameRatio()));
+  f.w=Math.min(Math.max(f.w,0.1),maxW);
+  const hN=f.w*vw*frameRatio()/vh;
+  f.x=Math.min(Math.max(f.x,0),1-f.w); f.y=Math.min(Math.max(f.y,0),1-hN);
+}
+function centerFrame(){ const [vw,vh]=vidSize(); S.frame.w=Math.min(0.6, 0.8*vh/(vw*frameRatio())); const hN=S.frame.w*vw*frameRatio()/vh; S.frame.x=(1-S.frame.w)/2; S.frame.y=(1-hN)/2; }
+function saveFrame(){ try{ localStorage.setItem('cardbox.frame',JSON.stringify(S.frame)); localStorage.setItem('cardbox.frameOn',S.frameOn?'1':'0'); }catch(_){} }
+function frameQuad(vw,vh){ const r=frameRect(vw,vh); return [[r.x,r.y],[r.x+r.w,r.y],[r.x+r.w,r.y+r.h],[r.x,r.y+r.h]]; }
+// 影像像素 <-> 圖框畫布像素（未縮放座標）
+function dispMap(){
+  const [vw,vh]=vidSize(), cw=fc.width, ch=fc.height, s=Math.min(cw/vw,ch/vh);
+  return {s, ox:(cw-vw*s)/2, oy:(ch-vh*s)/2, vw, vh};
+}
+function applyZoom(){
+  const v=$('view');
+  if(S.zoom<=1.01){ v.style.transform=''; }
+  else if(!S.frameOn){ v.style.transformOrigin='50% 50%'; v.style.transform=`scale(${S.zoom})`; }
+  else {
+    // 以圖框中心為放大中心
+    const m=dispMap(), r=frameRect(m.vw,m.vh), dpr=devicePixelRatio;
+    const cx=(m.ox+(r.x+r.w/2)*m.s)/dpr, cy=(m.oy+(r.y+r.h/2)*m.s)/dpr;
+    v.style.transformOrigin=`${cx}px ${cy}px`; v.style.transform=`scale(${S.zoom})`;
+  }
+  $('zoomTag').textContent=S.zoom.toFixed(1)+'×'; $('zoomTag').hidden=!S.running||S.zoom<=1.01;
+  $('oZoom').textContent=S.zoom.toFixed(1)+'×'; $('zoomIn').value=S.zoom;
+}
+function drawFrame(){
+  const show=S.frameOn && S.running;
+  fc.hidden=!show; if(!show) return;
+  fc.width=fc.offsetWidth*devicePixelRatio; fc.height=fc.offsetHeight*devicePixelRatio;
+  const m=dispMap(), r=frameRect(m.vw,m.vh), z=S.zoom, lw=2*devicePixelRatio/z;
+  const X=m.ox+r.x*m.s, Y=m.oy+r.y*m.s, W=r.w*m.s, H=r.h*m.s;
+  fx.clearRect(0,0,fc.width,fc.height);
+  fx.fillStyle='rgba(0,0,0,.45)'; fx.beginPath(); fx.rect(0,0,fc.width,fc.height); fx.rect(X,Y,W,H); fx.fill('evenodd');
+  fx.strokeStyle='#3fe0a5'; fx.lineWidth=lw; fx.strokeRect(X,Y,W,H);
+  // 三分線輔助對位
+  fx.strokeStyle='rgba(63,224,165,.45)'; fx.lineWidth=lw/2; fx.beginPath();
+  for(const k of [1/3,2/3]){ fx.moveTo(X+W*k,Y); fx.lineTo(X+W*k,Y+H); fx.moveTo(X,Y+H*k); fx.lineTo(X+W,Y+H*k); } fx.stroke();
+  const hs=14*devicePixelRatio/z; fx.fillStyle='#3fe0a5';
+  [[X,Y],[X+W,Y],[X+W,Y+H],[X,Y+H]].forEach(([a,b])=>fx.fillRect(a-hs/2,b-hs/2,hs,hs));
+}
+function frameUI(){
+  const man=S.capMode==='manual' && S.mode==='cam';
+  $('frameCtl').hidden=!man; $('frameNote').hidden=!(man && S.frameOn);
+  $('btnFrame').textContent='圖框裁切：'+(S.frameOn?'開':'關'); $('btnFrame').setAttribute('aria-pressed',S.frameOn);
+  $('btnFrame').classList.toggle('on',S.frameOn);
+  $('btnFrameRot').disabled=$('btnFrameReset').disabled=!S.frameOn;
+  $('zoomIn').disabled=!S.running;
+  if(!S.running && S.zoom!==1){ S.zoom=1; }
+  applyZoom(); drawFrame();
+}
+$('btnFrame').onclick=()=>{ S.frameOn=!S.frameOn; clampFrame(); saveFrame(); frameUI(); };
+$('btnFrameRot').onclick=()=>{ const [vw,vh]=vidSize(), r=frameRect(vw,vh), cx=r.x+r.w/2, cy=r.y+r.h/2;
+  S.frame.land=!S.frame.land; const nw=r.h; S.frame.w=nw/vw; S.frame.x=(cx-nw/2)/vw; S.frame.y=(cy-nw*frameRatio()/2)/vh; clampFrame(); saveFrame(); applyZoom(); drawFrame(); };
+$('btnFrameReset').onclick=()=>{ centerFrame(); saveFrame(); applyZoom(); drawFrame(); };
+$('zoomIn').addEventListener('input',()=>{ S.zoom=+$('zoomIn').value; applyZoom(); drawFrame(); });
+// 拖動：移動 / 角落等比例縮放 / 兩指縮放
+const ptrs=new Map(); let fdrag=null, pinch=null;
+function fcPos(e){ const r=fc.getBoundingClientRect(); return [(e.clientX-r.left)*fc.width/r.width,(e.clientY-r.top)*fc.height/r.height]; }
+fc.addEventListener('pointerdown',e=>{
+  fc.setPointerCapture(e.pointerId); ptrs.set(e.pointerId,[e.clientX,e.clientY]); e.preventDefault();
+  if(ptrs.size===2){ const [a,b]=[...ptrs.values()]; pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1]),z:S.zoom}; fdrag=null; return; }
+  const m=dispMap(), r=frameRect(m.vw,m.vh), [px,py]=fcPos(e);
+  const X=m.ox+r.x*m.s, Y=m.oy+r.y*m.s, W=r.w*m.s, H=r.h*m.s, tol=26*devicePixelRatio/S.zoom;
+  const corners=[[X,Y],[X+W,Y],[X+W,Y+H],[X,Y+H]];
+  const ci=corners.findIndex(([a,b])=>Math.abs(a-px)<tol&&Math.abs(b-py)<tol);
+  if(ci>=0){ const opp=corners[(ci+2)%4]; fdrag={type:'corner',ax:(opp[0]-m.ox)/m.s,ay:(opp[1]-m.oy)/m.s,ci}; }
+  else if(px>X&&px<X+W&&py>Y&&py<Y+H){ fdrag={type:'move',sx:px,sy:py,fx:S.frame.x,fy:S.frame.y}; }
+});
+fc.addEventListener('pointermove',e=>{
+  if(!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId,[e.clientX,e.clientY]);
+  if(pinch && ptrs.size===2){ const [a,b]=[...ptrs.values()]; S.zoom=Math.min(4,Math.max(1,pinch.z*Math.hypot(a[0]-b[0],a[1]-b[1])/pinch.d)); applyZoom(); drawFrame(); return; }
+  if(!fdrag) return;
+  const m=dispMap(), [px,py]=fcPos(e);
+  if(fdrag.type==='move'){
+    S.frame.x=fdrag.fx+(px-fdrag.sx)/m.s/m.vw; S.frame.y=fdrag.fy+(py-fdrag.sy)/m.s/m.vh;
+  } else {
+    const ix=(px-m.ox)/m.s, iy=(py-m.oy)/m.s, R=frameRatio();
+    let w=Math.max(Math.abs(ix-fdrag.ax), Math.abs(iy-fdrag.ay)/R); // 維持卡片比例
+    w=Math.min(w, (ix<fdrag.ax?fdrag.ax:m.vw-fdrag.ax), (iy<fdrag.ay?fdrag.ay:m.vh-fdrag.ay)/R);
+    const h=w*R, x=ix<fdrag.ax?fdrag.ax-w:fdrag.ax, y=iy<fdrag.ay?fdrag.ay-h:fdrag.ay;
+    S.frame.w=w/m.vw; S.frame.x=x/m.vw; S.frame.y=y/m.vh;
+  }
+  clampFrame(); drawFrame();
+});
+const fcUp=e=>{ ptrs.delete(e.pointerId); if(ptrs.size<2) pinch=null; if(!ptrs.size){ if(fdrag){ fdrag=null; saveFrame(); applyZoom(); drawFrame(); } } };
+fc.addEventListener('pointerup',fcUp); fc.addEventListener('pointercancel',fcUp);
+fc.addEventListener('click',e=>e.stopPropagation()); // 圖框上點擊不觸發拍照
+addEventListener('resize',()=>{ applyZoom(); drawFrame(); });
+video.addEventListener('loadedmetadata',()=>{ clampFrame(); applyZoom(); drawFrame(); });
+
 /* ---------- video file mode ---------- */
 function seek(t){ return new Promise(r=>{ const h=()=>{video.removeEventListener('seeked',h);r();}; video.addEventListener('seeked',h); video.currentTime=t; }); }
 $('fileIn').onchange=async e=>{
@@ -682,6 +806,7 @@ function setMode(m){
     : '用手機相機把放卡的過程錄成一段影片，再選取它。程式會找出每張卡放好的瞬間並裁切。';
   $('hint').hidden=false; video.removeAttribute('src');
   if(m==='cam') setCapMode(S.capMode);
+  frameUI();
 }
 $('tabCam').onclick=()=>setMode('cam'); $('tabVid').onclick=()=>setMode('vid');
 setCapMode(S.capMode);
