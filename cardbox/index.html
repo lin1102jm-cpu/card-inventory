@@ -60,6 +60,12 @@ summary{cursor:pointer;font-weight:500}
 .card .meta{display:flex;justify-content:space-between;align-items:center;font-family:var(--f-mono);font-size:11px;color:var(--muted)}
 .card .meta button{border:0;background:none;color:var(--muted);font:inherit;cursor:pointer;padding:4px 6px;min-height:28px}
 .card .meta button:hover{color:var(--ink)}
+.seg{display:flex;flex:1 1 100%;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:3px}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted);font:inherit;font-weight:500;padding:8px;border-radius:6px;cursor:pointer;min-height:38px}
+.seg button[aria-checked="true"]{background:var(--ink);color:var(--bg)}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.shutter{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-size:17px;min-height:56px}
+.stage.tap{cursor:pointer}
 .btn.sm{min-height:34px;padding:6px 10px;font-size:13px}
 .adj{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
 .adj-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -107,6 +113,10 @@ dialog .row{justify-content:center;margin-top:10px}
   </div>
 
   <div class="row" id="camCtl">
+    <div class="seg" id="capMode" role="radiogroup" aria-label="拍攝模式">
+      <button role="radio" data-m="auto" aria-checked="true">自動拍</button>
+      <button role="radio" data-m="manual" aria-checked="false">手動拍</button>
+    </div>
     <button class="btn primary grow" id="btnStart" disabled>開始</button>
     <button class="btn grow" id="btnShot" disabled>手動拍一張</button>
   </div>
@@ -246,7 +256,7 @@ function makeDetector(onCapture){
   };
 }
 function showState(st,diff){
-  const el=$('state'), map={wait:'準備中',move:'偵測到動作',settle:'等待穩定',idle:'待命，放下一張',ok:'已拍下'};
+  const el=$('state'), map={manual:'手動模式・按快門或點畫面',wait:'準備中',move:'偵測到動作',settle:'等待穩定',idle:'待命，放下一張',ok:'已拍下'};
   el.textContent=map[st]||st; el.className='pill '+(st==='move'||st==='settle'?'move':'ok');
   $('motionBar').style.width=Math.min(100,Math.max(0,diff)*3)+'%';
 }
@@ -291,12 +301,12 @@ function findCard(src){ // src: cv.Mat RGBA full res. returns quad in full-res c
   } finally { sm.delete(); g.delete(); e.delete(); k.delete(); cs.delete(); hier.delete(); }
   return best ? orderQuad(best) : null;
 }
-function warp(src,q){
+function warp(src,q,keep){
   const cv=S.cv, dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
   const wTop=(dist(q[0],q[1])+dist(q[3],q[2]))/2, hSide=(dist(q[0],q[3])+dist(q[1],q[2]))/2;
   const land = wTop>hSide;
   const shortSide=Math.round(Math.min(wTop,hSide)), longSide=Math.round(shortSide*CARD_RATIO);
-  const W=land?longSide:shortSide, H=land?shortSide:longSide;
+  const W=keep?Math.round(wTop):(land?longSide:shortSide), H=keep?Math.round(hSide):(land?shortSide:longSide);
   const sp=cv.matFromArray(4,1,cv.CV_32FC2,q.flat());
   const dp=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,W,0,W,H,0,H]);
   const M=cv.getPerspectiveTransform(sp,dp), out=new cv.Mat();
@@ -320,9 +330,9 @@ async function capture(source,w,h,{initial=false,manual=false}={}){
   full.width=w; full.height=h; fctx.drawImage(source,0,0,w,h);
   const src=S.cv.imread(full);
   let q;
-  try{ q=findCard(src); if(!q && !initial) q=S.lastQuad; if(!q){ if(manual) toast('找不到卡片邊緣'); return; }
+  try{ q=findCard(src); if(!q && !initial) q=S.lastQuad; if(!q){ if(!manual) return; q=[[0,0],[w,0],[w,h],[0,h]]; var whole=true; toast('找不到卡片邊緣，先存整張畫面'); }
        if(!initial || q) S.lastQuad=q;
-       var can=warp(src,q);
+       var can=warp(src,q,typeof whole!=='undefined');
   } finally { src.delete(); }
   drawQuad(q,w,h);
   const sig=thumbSig(can), last=S.cards[S.cards.length-1];
@@ -576,23 +586,41 @@ async function startCam(){
   }
   video.srcObject=S.stream; await video.play();
   $('hint').hidden=true; $('meter').hidden=false; S.running=true; prevSmall=null;
-  $('btnStart').textContent='停止'; $('btnShot').disabled=false;
+  $('btnStart').textContent='停止'; $('btnStart').classList.remove('primary'); $('btnShot').disabled=false;
   try{ wakeLock=await navigator.wakeLock?.request('screen'); }catch(_){}
   const det=makeDetector(init=>capture(video,video.videoWidth,video.videoHeight,{initial:init}));
   camTimer=setInterval(()=>{
     if(!video.videoWidth) return;
     const d=sampleMotion(video,video.videoWidth,video.videoHeight);
-    showState(det(d),d);
+    showState(S.capMode==='manual'?'manual':det(d),d);
   },100);
 }
 function stopCam(){
   clearInterval(camTimer); S.running=false;
   S.stream?.getTracks().forEach(t=>t.stop()); S.stream=null; video.srcObject=null;
   try{ wakeLock?.release(); }catch(_){}
-  $('btnStart').textContent='開始'; $('btnShot').disabled=true; $('meter').hidden=true; $('hint').hidden=false;
+  $('btnStart').textContent='開始'; $('btnStart').classList.add('primary'); $('btnShot').disabled=true; $('meter').hidden=true; $('hint').hidden=false;
 }
 $('btnStart').onclick=()=> S.running?stopCam():startCam();
-$('btnShot').onclick=()=>capture(video,video.videoWidth,video.videoHeight,{manual:true});
+$('btnShot').onclick=()=>{ if(S.running) capture(video,video.videoWidth,video.videoHeight,{manual:true}); };
+// 手動模式：點取景畫面也能拍
+$('stage').addEventListener('click',()=>{ if(S.mode==='cam' && S.running && S.capMode==='manual') $('btnShot').click(); });
+/* ---------- 自動 / 手動 拍攝模式 ---------- */
+S.capMode='auto';
+try{ if(localStorage.getItem('cardbox.capMode')==='manual') S.capMode='manual'; }catch(_){}
+function setCapMode(m){
+  S.capMode=m;
+  document.querySelectorAll('#capMode button').forEach(b=>b.setAttribute('aria-checked',b.dataset.m===m));
+  const man=m==='manual';
+  $('btnShot').textContent=man?'拍照':'手動拍一張';
+  $('btnShot').classList.toggle('shutter',man);
+  $('stage').classList.toggle('tap',man);
+  if(S.mode==='cam' && !S.running) $('hint').textContent = man
+    ? '手動模式：放好卡片後按「拍照」或直接點畫面，程式一樣會自動裁切。'
+    : '手機放在拍照盒上方，按「開始」。每放一張卡、手移開約 0.7 秒後會自動拍下並裁切。';
+  try{ localStorage.setItem('cardbox.capMode',m); }catch(_){}
+}
+document.querySelectorAll('#capMode button').forEach(b=>b.onclick=()=>setCapMode(b.dataset.m));
 
 /* ---------- video file mode ---------- */
 function seek(t){ return new Promise(r=>{ const h=()=>{video.removeEventListener('seeked',h);r();}; video.addEventListener('seeked',h); video.currentTime=t; }); }
@@ -628,8 +656,10 @@ function setMode(m){
     ? '手機放在拍照盒上方，按「開始」。每放一張卡、手移開約 0.7 秒後會自動拍下並裁切。'
     : '用手機相機把放卡的過程錄成一段影片，再選取它。程式會找出每張卡放好的瞬間並裁切。';
   $('hint').hidden=false; video.removeAttribute('src');
+  if(m==='cam') setCapMode(S.capMode);
 }
 $('tabCam').onclick=()=>setMode('cam'); $('tabVid').onclick=()=>setMode('vid');
+setCapMode(S.capMode);
 if(!navigator.mediaDevices?.getUserMedia) setMode('vid');
 render();
 })();
