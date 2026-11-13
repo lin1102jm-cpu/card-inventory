@@ -206,7 +206,7 @@ sets.forEach(([s,o,f])=>{ const u=()=>$(o).textContent=f(+$(s).value); $(s).addE
 const cfg = () => ({ move:+$('sMove').value, still:+$('sStill').value, noise:+$('sNoise').value, first:$('cFirst').checked, dup:$('cDup').checked });
 
 /* ---------- OpenCV load ---------- */
-function cvOk(c){ S.cv=c; $('cvStatus').textContent='影像引擎就緒'; $('btnStart').disabled=false; }
+function cvOk(c){ S.cv=c; $('cvStatus').textContent='影像引擎就緒'; $('btnStart').disabled=false; camButtons(); }
 window.__cvReady = () => { if(!S.cv && window.cv && window.cv.Mat) cvOk(window.cv); };
 // 不 await cv：舊版 emscripten 物件自帶 then()，await 會無限遞迴
 const poll = setInterval(() => {
@@ -576,17 +576,35 @@ async function zipOf(list){ const z=new JSZip(); list.forEach(c=>z.file(c.name,c
 $('btnSaveAll').onclick=()=>saveFiles(S.cards);
 
 /* ---------- camera mode ---------- */
-let wakeLock=null, camTimer=null;
-async function startCam(){
+let wakeLock=null, camTimer=null, quickBusy=false;
+// 依模式與相機狀態更新按鈕
+function camButtons(){
+  const man=S.capMode==='manual', on=S.running;
+  $('btnStart').textContent = man ? (on?'關閉預覽':'開啟預覽') : (on?'停止':'開始');
+  $('btnStart').classList.toggle('primary', !on && !man);
+  $('btnShot').textContent = man ? (quickBusy?'拍照中…':'拍照') : '手動拍一張';
+  $('btnShot').classList.toggle('shutter', man);
+  $('btnShot').disabled = !S.cv || quickBusy || (!man && !on);
+  $('stage').classList.toggle('tap', man);
+  $('meter').hidden = !on;
+  $('hint').hidden = on;
+  if(!on && S.mode==='cam') $('hint').textContent = quickBusy ? '拍照中，相機稍後自動關閉…' : man
+    ? '手動模式：相機目前關閉。放好卡片後直接按「拍照」，會暫時開相機拍一張就關掉；要先對位就按「開啟預覽」。'
+    : '手機放在拍照盒上方，按「開始」。每放一張卡、手移開約 0.7 秒後會自動拍下並裁切。';
+}
+async function openStream(){
   try{
     S.stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:3840},height:{ideal:2160}}});
   }catch(e){
     $('modeNote').textContent='無法開啟相機（在 Claude 裡面會被封鎖）。請改用「匯入影片」，或用獨立網址開啟此工具。';
-    $('modeNote').className='note warn'; return;
+    $('modeNote').className='note warn'; return false;
   }
-  video.srcObject=S.stream; await video.play();
-  $('hint').hidden=true; $('meter').hidden=false; S.running=true; prevSmall=null;
-  $('btnStart').textContent='停止'; $('btnStart').classList.remove('primary'); $('btnShot').disabled=false;
+  video.srcObject=S.stream; await video.play(); return true;
+}
+function closeStream(){ S.stream?.getTracks().forEach(t=>t.stop()); S.stream=null; video.srcObject=null; }
+async function startCam(){
+  if(!await openStream()) return;
+  S.running=true; prevSmall=null; camButtons();
   try{ wakeLock=await navigator.wakeLock?.request('screen'); }catch(_){}
   const det=makeDetector(init=>capture(video,video.videoWidth,video.videoHeight,{initial:init}));
   camTimer=setInterval(()=>{
@@ -596,28 +614,35 @@ async function startCam(){
   },100);
 }
 function stopCam(){
-  clearInterval(camTimer); S.running=false;
-  S.stream?.getTracks().forEach(t=>t.stop()); S.stream=null; video.srcObject=null;
-  try{ wakeLock?.release(); }catch(_){}
-  $('btnStart').textContent='開始'; $('btnStart').classList.add('primary'); $('btnShot').disabled=true; $('meter').hidden=true; $('hint').hidden=false;
+  clearInterval(camTimer); S.running=false; closeStream();
+  try{ wakeLock?.release(); wakeLock=null; }catch(_){}
+  camButtons();
+}
+// 沒開預覽時拍照：暫時開相機，等對焦曝光穩定後拍一張，再關掉
+async function quickShot(){
+  quickBusy=true; camButtons();
+  try{
+    if(!await openStream()) return;
+    await new Promise(r=>setTimeout(r,1200));
+    if(video.videoWidth) await capture(video,video.videoWidth,video.videoHeight,{manual:true});
+  } finally { closeStream(); quickBusy=false; camButtons(); }
 }
 $('btnStart').onclick=()=> S.running?stopCam():startCam();
-$('btnShot').onclick=()=>{ if(S.running) capture(video,video.videoWidth,video.videoHeight,{manual:true}); };
+$('btnShot').onclick=()=>{
+  if(S.running) capture(video,video.videoWidth,video.videoHeight,{manual:true});
+  else if(S.capMode==='manual' && !quickBusy) quickShot();
+};
 // 手動模式：點取景畫面也能拍
-$('stage').addEventListener('click',()=>{ if(S.mode==='cam' && S.running && S.capMode==='manual') $('btnShot').click(); });
+$('stage').addEventListener('click',()=>{ if(S.mode==='cam' && S.capMode==='manual' && !quickBusy) $('btnShot').click(); });
 /* ---------- 自動 / 手動 拍攝模式 ---------- */
 S.capMode='auto';
 try{ if(localStorage.getItem('cardbox.capMode')==='manual') S.capMode='manual'; }catch(_){}
 function setCapMode(m){
-  S.capMode=m;
+  const was=S.capMode; S.capMode=m;
   document.querySelectorAll('#capMode button').forEach(b=>b.setAttribute('aria-checked',b.dataset.m===m));
-  const man=m==='manual';
-  $('btnShot').textContent=man?'拍照':'手動拍一張';
-  $('btnShot').classList.toggle('shutter',man);
-  $('stage').classList.toggle('tap',man);
-  if(S.mode==='cam' && !S.running) $('hint').textContent = man
-    ? '手動模式：放好卡片後按「拍照」或直接點畫面，程式一樣會自動裁切。'
-    : '手機放在拍照盒上方，按「開始」。每放一張卡、手移開約 0.7 秒後會自動拍下並裁切。';
+  // 切到手動時預設關相機
+  if(m==='manual' && was!=='manual' && S.running) stopCam();
+  camButtons();
   try{ localStorage.setItem('cardbox.capMode',m); }catch(_){}
 }
 document.querySelectorAll('#capMode button').forEach(b=>b.onclick=()=>setCapMode(b.dataset.m));
