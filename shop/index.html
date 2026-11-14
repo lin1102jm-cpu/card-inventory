@@ -3,6 +3,7 @@
 <head>
 <base target="_top">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>卡櫃</title>
 <script src="config.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -30,6 +31,10 @@ button{cursor:pointer}
 h1{font-family:var(--f-display);font-weight:700;font-size:clamp(32px,6vw,46px);line-height:1;margin:0 0 6px;letter-spacing:.01em}
 .lead{color:var(--muted);font-size:13.5px;display:flex;gap:14px;flex-wrap:wrap}
 .lead b{color:var(--ink);font-variant-numeric:tabular-nums}
+.head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.viewbtn{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:13px;min-height:34px}
+html.view-phone .wrap{max-width:520px}
+html.view-phone .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .alert{padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--warn) 14%,var(--surface));border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line))}
 
 .tools{display:flex;flex-wrap:nowrap;gap:8px;align-items:center;overflow-x:auto;scrollbar-width:thin;padding-bottom:2px;-webkit-overflow-scrolling:touch}
@@ -145,7 +150,7 @@ textarea.out{min-height:150px;font-size:13.5px;resize:vertical}
 <body>
 <div class="wrap">
   <header>
-    <h1 id="shop"></h1>
+    <div class="head-row"><h1 id="shop"></h1><button type="button" class="viewbtn" id="viewBtn" aria-label="切換版面"></button></div>
     <div class="lead"><span><b id="count">0</b> 款可購買</span><span id="updated"></span></div>
   </header>
   <div class="alert" id="alert" hidden></div>
@@ -200,14 +205,24 @@ textarea.out{min-height:150px;font-size:13.5px;resize:vertical}
   }
   window.google = { script: { get run() { return runner(); } } };
   var grid = document.getElementById("grid"), alertBox = document.getElementById("alert");
+  var booted = false, KEY = "cardshop.catalog";
+  function boot(d) { window.__DATA = d; grid.innerHTML = ""; booted = true; window.__boot(); }
   function load() {
     alertBox.hidden = true;
-    grid.innerHTML = '<div class="empty" style="grid-column:1/-1">卡片載入中…</div>';
     if (!API) { grid.innerHTML = ""; alertBox.textContent = "還沒設定資料服務網址（config.js）。"; alertBox.hidden = false; return; }
+    // 先用這台手機上次看到的資料秒開（最多 1 天內），同時在背景拿最新庫存
+    var cached = null;
+    try { cached = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
+    if (!booted && cached && cached.d && Date.now() - cached.t < 86400000) boot(cached.d);
+    if (!booted) grid.innerHTML = '<div class="empty" style="grid-column:1/-1">卡片載入中…</div>';
     var refresh = /[?&]refresh=1/.test(location.search) ? "&refresh=1" : "";
     fetch(API + "?api=catalog" + refresh).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(function (d) { window.__DATA = d; grid.innerHTML = ""; window.__boot(); })
+      .then(function (d) {
+        try { localStorage.setItem(KEY, JSON.stringify({ t: Date.now(), d: d })); } catch (e) {}
+        if (booted && window.__refresh) window.__refresh(d); else boot(d);
+      })
       .catch(function () {
+        if (booted) return;
         grid.innerHTML = '<div class="empty" style="grid-column:1/-1">目前讀不到卡片資料。<br><br><button class="btn primary" id="retry">重新載入</button></div>';
         document.getElementById("retry").onclick = load;
       });
@@ -242,6 +257,32 @@ window.__boot = function () {
 
   $("shop").textContent = DATA.shop || "卡櫃";
   if (DATA.updated) $("updated").textContent = "庫存更新：" + DATA.updated;
+  // 版面切換：手機版（窄、兩欄）／電腦版（寬版；手機上會像電腦網頁一樣整頁縮小顯示）
+  (function () {
+    var meta = document.querySelector('meta[name="viewport"]');
+    var get = function () { try { return localStorage.getItem("cardshop.view") || ""; } catch (e) { return ""; } };
+    var auto = function () { return Math.min(screen.width || 9999, window.innerWidth || 9999) < 760 ? "phone" : "desk"; };
+    var apply = function (v) {
+      var mode = v || auto();
+      document.documentElement.classList.toggle("view-phone", mode === "phone");
+      if (meta) meta.setAttribute("content", mode === "desk" && (screen.width || 9999) < 760 ? "width=1180" : "width=device-width, initial-scale=1, viewport-fit=cover");
+      $("viewBtn").textContent = mode === "phone" ? "改用電腦版" : "改用手機版";
+      return mode;
+    };
+    var cur = apply(get());
+    $("viewBtn").onclick = function () { cur = cur === "phone" ? "desk" : "phone"; try { localStorage.setItem("cardshop.view", cur); } catch (e) {} apply(cur); render(); };
+  })();
+  // GitHub 版：先用上次的資料秒開，背景拿到新資料後更新畫面
+  window.__refresh = function (d) {
+    if (!d || !d.cards) return;
+    cards.length = 0;
+    d.cards.forEach(function (c) { if (c.avail == null) c.avail = c.qty; cards.push(c); });
+    if (d.pay) PAY = d.pay;
+    if (d.updated) $("updated").textContent = "庫存更新：" + d.updated;
+    $("alert").hidden = !d.error; if (d.error) $("alert").textContent = d.error;
+    Object.keys(cart).forEach(function (id) { var c = cards.find(function (x) { return x.id === id; }); if (!c || c.avail <= 0) delete cart[id]; else if (cart[id] > c.avail) cart[id] = c.avail; });
+    saveCart(); render();
+  };
   if (DATA.error) { $("alert").textContent = DATA.error; $("alert").hidden = false; }
 
   // 篩選：運動類型 → 系列 → 種類，選項互相連動並顯示張數（系列大小寫不同視為同一個）
