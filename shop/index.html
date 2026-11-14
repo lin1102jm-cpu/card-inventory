@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<title>卡櫃</title>
+<script src="config.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: shop shelf — filters on top, portrait card slots (63×88) in a grid, sticky order bar at the bottom */
+:root{
+  --bg:#EEF1F5; --surface:#FFFFFF; --sunk:#E2E6EC; --ink:#151A22; --muted:#5D6675; --line:#D3D8E0;
+  --accent:#2747D8; --accent-ink:#FFFFFF; --ok:#1E8A55; --warn:#B87400; --sold:#C2333A;
+  --f-display:"Barlow Condensed","Noto Sans TC","Arial Narrow",sans-serif;
+  --f-body:"Noto Sans TC",system-ui,-apple-system,"Microsoft JhengHei",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#12151B; --surface:#1B2029; --sunk:#232935; --ink:#E8ECF2; --muted:#9AA3B2; --line:#2E3543;
+  --accent:#7D93FF; --accent-ink:#0E1220; --ok:#4CC88A; --warn:#E6A93A; --sold:#F06A70; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 120px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(32px,6vw,46px);line-height:1;margin:0 0 6px;letter-spacing:.01em}
+.lead{color:var(--muted);font-size:13.5px;display:flex;gap:14px;flex-wrap:wrap}
+.lead b{color:var(--ink);font-variant-numeric:tabular-nums}
+.alert{padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--warn) 14%,var(--surface));border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line))}
+
+.tools{display:flex;flex-wrap:nowrap;gap:8px;align-items:center;overflow-x:auto;scrollbar-width:thin;padding-bottom:2px;-webkit-overflow-scrolling:touch}
+.tools > *{flex:0 0 auto}
+.tools .search{flex:1 0 150px;min-width:150px}
+.tools .sortsel{max-width:190px;padding:8px 8px;font-size:14px}
+@media (max-width:700px){
+  .tools{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);padding-right:28px}
+  .tools .search{flex-basis:120px;min-width:120px}
+  .tools .sortsel{max-width:150px}
+}
+.seg{display:flex;background:var(--sunk);border-radius:9px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{border:0;background:transparent;border-radius:7px;padding:6px 12px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgb(0 0 0 / .08)}
+.search{flex:1 1 200px;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 12px}
+.sortsel{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 10px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:18px}
+.card{display:flex;flex-direction:column;gap:8px;min-width:0}
+.slot{position:relative;aspect-ratio:63/88;max-width:100%;width:100%;border-radius:10px;overflow:hidden;background:var(--sunk);border:1px solid var(--line);padding:0;display:block}
+.slot img{width:100%;height:100%;object-fit:cover;display:block}
+.slot.land:not(.big){background:transparent;border-color:transparent;overflow:visible}
+.slot.land:not(.big) img{position:absolute;left:0;right:0;bottom:0;height:auto;aspect-ratio:88/63;border-radius:10px;border:1px solid var(--line)}
+.slot.land:not(.big) .stock{top:calc(48.74% + 8px)}
+.slot.land.big{aspect-ratio:88/63}
+.slot img[data-r="向右轉"],.slot img[data-r="向左轉"]{position:absolute;left:50%;right:auto;bottom:auto;aspect-ratio:auto;object-position:center}
+.slot img[data-r="向右轉"]{transform:translate(-50%,-50%) rotate(90deg)}
+.slot img[data-r="向左轉"]{transform:translate(-50%,-50%) rotate(-90deg)}
+.slot.land:not(.big) img[data-r="向右轉"],.slot.land:not(.big) img[data-r="向左轉"]{left:50%;right:auto;bottom:auto;aspect-ratio:auto;top:74.37%;width:71.59%;height:71.59%}
+.slot.land.big{flex:none}
+.slot.land.big img[data-r="向右轉"],.slot.land.big img[data-r="向左轉"]{top:50%;width:71.59%;height:139.68%}
+.rel h3{font-size:14px;margin:4px 0 8px;font-weight:700}
+.rel-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x proximity}
+.rel-row button{flex:0 0 112px;scroll-snap-align:start;border:0;background:transparent;padding:0;text-align:left;display:flex;flex-direction:column;gap:4px;color:inherit}
+.rel-row .slot{border-radius:8px}
+.rel-row .ph{font-size:12px}
+.rel-row .rn{font-size:12.5px;font-weight:700;line-height:1.25;overflow-wrap:anywhere}
+.rel-row .rs{font-size:11.5px;color:var(--muted);line-height:1.3;overflow-wrap:anywhere}
+.ph{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:12px;color:var(--muted);font-family:var(--f-display);font-size:17px;line-height:1.2;
+  background:repeating-linear-gradient(135deg,transparent 0 10px,color-mix(in srgb,var(--line) 55%,transparent) 10px 11px)}
+.stock{position:absolute;top:8px;right:8px;padding:2px 9px;border-radius:999px;background:var(--surface);color:var(--ink);font-size:12px;font-weight:700;box-shadow:0 1px 4px rgb(0 0 0 / .18);font-variant-numeric:tabular-nums}
+.stock.low{background:var(--warn);color:#fff}
+.held{position:absolute;left:0;right:0;bottom:14%;background:color-mix(in srgb,var(--warn) 90%,transparent);color:#fff;text-align:center;font-weight:700;letter-spacing:.2em;padding:2px 0}
+.card.is-held .slot img{filter:grayscale(.6)}
+.meta{display:flex;flex-direction:column;gap:1px;min-width:0}
+.chip{align-self:flex-start;font-size:11px;letter-spacing:.06em;padding:1px 7px;border-radius:4px;background:var(--sunk);color:var(--muted)}
+.name{font-weight:700;line-height:1.35;overflow-wrap:anywhere}
+.sub{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.price{font-family:var(--f-display);font-size:21px;font-weight:700;font-variant-numeric:tabular-nums}
+.vars{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.vars button{font-size:11.5px;line-height:1.2;padding:4px 8px;border-radius:5px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vars button[aria-pressed="true"]{border-color:var(--sold);color:var(--sold);font-weight:700}
+.vars button.out{color:var(--muted);text-decoration:line-through}
+.vars button .in{display:inline-block;min-width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:4px;vertical-align:middle}
+.add{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:8px;padding:7px 10px;font-weight:700;width:100%}
+.add:disabled{background:var(--sunk);border-color:var(--line);color:var(--muted);cursor:default}
+.stepper{display:flex;align-items:center;gap:6px}
+.stepper button{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:18px;line-height:1}
+.stepper button:disabled{opacity:.35;cursor:default}
+.stepper span{flex:1;text-align:center;font-weight:700;font-variant-numeric:tabular-nums;color:var(--accent)}
+.empty{border:2px dashed var(--line);border-radius:14px;padding:36px 20px;text-align:center;color:var(--muted)}
+
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:10;background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -6px 20px rgb(0 0 0 / .08);
+  padding-top:12px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.bar-in{max-width:1180px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.bar .sum{font-size:14px;color:var(--muted)} .bar .sum b{font-family:var(--f-display);font-size:22px;color:var(--ink);font-variant-numeric:tabular-nums}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 16px;min-height:40px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+.btn:disabled{opacity:.5;cursor:default}
+
+.scrim{position:fixed;inset:0;background:rgb(10 12 18 / .5);z-index:20}
+.sheet{position:fixed;z-index:21;background:var(--surface);display:flex;flex-direction:column;
+  inset:auto 0 0 0;max-height:88vh;border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (min-width:720px){.sheet{inset:0 0 0 auto;width:460px;max-height:none;border-radius:0}}
+.sheet-h{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line)}
+.sheet-h h2{font-family:var(--f-display);font-size:24px;margin:0;line-height:1.2;overflow-wrap:anywhere;min-width:0}
+.sheet-b{flex:1;overflow:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px}
+.big{width:min(300px,100%);align-self:center}
+.big img{object-fit:contain;background:var(--sunk)}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:5px 14px;margin:0}
+dt{color:var(--muted)} dd{margin:0;overflow-wrap:anywhere}
+.intro{white-space:pre-wrap}
+.lines{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.lines li{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:10px}
+.lines .n{font-weight:700;overflow-wrap:anywhere}.lines .s{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:12px;letter-spacing:.06em;color:var(--muted)}
+.field input,.field textarea{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 10px;width:100%}
+textarea.out{min-height:150px;font-size:13.5px;resize:vertical}
+.note{font-size:13px;color:var(--muted)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:14px;z-index:30;max-width:calc(100% - 32px)}
+.pay{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
+.pay .ono{font-size:13px;color:var(--muted)} .pay .ono b{display:block;font-family:var(--f-display);font-size:54px;line-height:1;color:var(--ink);letter-spacing:.04em}
+.pay .amt{font-family:var(--f-display);font-size:40px;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums;line-height:1}
+.pay .qr{width:min(260px,80%);aspect-ratio:1;border-radius:12px;background:#fff;padding:10px;border:1px solid var(--line)}
+.pay .qr img{width:100%;height:100%;object-fit:contain;display:block}
+.steps{text-align:left;margin:0;padding-left:1.3em;display:flex;flex-direction:column;gap:4px;align-self:stretch}
+.status{padding:4px 12px;border-radius:999px;font-weight:700;font-size:13px;background:var(--sunk)}
+.status.paid{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.status.done{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.status.cancel{background:color-mix(in srgb,var(--sold) 15%,transparent);color:var(--sold)}
+.err{color:var(--sold);font-size:13.5px}
+.mode{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mode button{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px;text-align:left;display:flex;flex-direction:column;gap:2px}
+.mode button b{font-size:15px}.mode button span{font-size:12px;color:var(--muted)}
+.mode button[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.mode button[aria-pressed="true"] b{color:var(--accent)}
+[hidden]{display:none!important}
+@media (max-width:480px){.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="shop"></h1>
+    <div class="lead"><span><b id="count">0</b> 款可購買</span><span id="updated"></span></div>
+  </header>
+  <div class="alert" id="alert" hidden></div>
+  <div class="tools" id="tools">
+    <input class="search" id="q" type="search" placeholder="搜尋車手、球員、卡號">
+    <select class="sortsel" id="fSport" aria-label="運動類型"></select>
+    <select class="sortsel" id="fSeries" aria-label="系列"></select>
+    <select class="sortsel" id="fKind" aria-label="種類"></select>
+    <select class="sortsel" id="sort" aria-label="排序">
+      <option value="no">依卡號</option>
+      <option value="new">最新上架</option>
+      <option value="priceAsc">價格低→高</option>
+      <option value="priceDesc">價格高→低</option>
+    </select>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" hidden>目前沒有符合的卡片。</div>
+</div>
+
+<div class="bar" id="bar">
+  <div class="bar-in">
+    <div class="sum">已選 <b id="selCount">0</b> 張 · 合計 <b id="selTotal">NT$ 0</b></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="myOrder" hidden>我的訂單</button><button class="btn primary" id="openCart" disabled>購物車</button></div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="sheet" id="sheet" hidden aria-labelledby="sheetTitle">
+  <div class="sheet-h"><h2 id="sheetTitle"></h2><button class="btn" id="closeBtn">關閉</button></div>
+  <div class="sheet-b" id="sheetBody"></div>
+</aside>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+// GitHub Pages 版：資料和下單都交給 Apps Script（config.js 裡的 API 網址）
+(function () {
+  var API = (window.SHOP_CONFIG && window.SHOP_CONFIG.api) || "";
+  function call(fn, args, ok, fail) {
+    var req;
+    if (fn === "createOrder") req = fetch(API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(Object.assign({ action: "order" }, args[0] || {})) });
+    else if (fn === "orderStatus") req = fetch(API + "?api=status&no=" + encodeURIComponent(args[0]));
+    else return fail && fail(new Error("不支援的動作"));
+    req.then(function (r) { if (!r.ok) throw new Error("連線失敗（" + r.status + "）"); return r.json(); })
+      .then(function (d) { ok && ok(d); })
+      .catch(function (e) { fail && fail(new Error("連不上伺服器，請檢查網路後再試一次")); });
+  }
+  function runner() {
+    var ok, fail;
+    var r = { withSuccessHandler: function (f) { ok = f; return r; }, withFailureHandler: function (f) { fail = f; return r; },
+      createOrder: function () { call("createOrder", arguments, ok, fail); }, orderStatus: function () { call("orderStatus", arguments, ok, fail); } };
+    return r;
+  }
+  window.google = { script: { get run() { return runner(); } } };
+  var grid = document.getElementById("grid"), alertBox = document.getElementById("alert");
+  function load() {
+    alertBox.hidden = true;
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1">卡片載入中…</div>';
+    if (!API) { grid.innerHTML = ""; alertBox.textContent = "還沒設定資料服務網址（config.js）。"; alertBox.hidden = false; return; }
+    var refresh = /[?&]refresh=1/.test(location.search) ? "&refresh=1" : "";
+    fetch(API + "?api=catalog" + refresh).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) { window.__DATA = d; grid.innerHTML = ""; window.__boot(); })
+      .catch(function () {
+        grid.innerHTML = '<div class="empty" style="grid-column:1/-1">目前讀不到卡片資料。<br><br><button class="btn primary" id="retry">重新載入</button></div>';
+        document.getElementById("retry").onclick = load;
+      });
+  }
+  window.addEventListener("DOMContentLoaded", load);
+})();
+</script>
+<script>
+window.__boot = function () {
+  var DATA = window.__DATA || {};
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (m) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]; }); };
+  var CLIENT = (function () { try { var v = localStorage.getItem("cardshop.client"); if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("cardshop.client", v); } return v; } catch (e) { return ""; } })();
+  var money = function (n) { return "NT$ " + Number(n || 0).toLocaleString("zh-TW"); };
+  var numOf = function (s) { var m = String(s || "").match(/\d+/); return m ? parseInt(m[0], 10) : null; };
+  var toast = function (msg) { var t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(function () { t.hidden = true; }, 2400); };
+  var img = function (id, w) { return "https://drive.google.com/thumbnail?id=" + encodeURIComponent(id) + "&sz=w" + (w || 600); };
+  var imgAlt = function (id, w) { return "https://lh3.googleusercontent.com/d/" + encodeURIComponent(id) + "=w" + (w || 600); };
+
+  var cards = (DATA.cards || []).map(function (c) { if (c.avail == null) c.avail = c.qty; return c; });
+  var PAY = DATA.pay || {};
+  var ui = { cat: "", series: "", kind: "", q: "", sort: "no" };
+  var CART_KEY = "cardshop.cart";
+  var cart = {};
+  try { cart = JSON.parse(localStorage.getItem(CART_KEY) || "{}") || {}; } catch (e) { cart = {}; }
+  // drop items no longer for sale, and clamp to current stock
+  Object.keys(cart).forEach(function (id) {
+    var c = cards.find(function (x) { return x.id === id; });
+    if (!c || c.status === "保留中" || c.avail <= 0) delete cart[id]; else cart[id] = Math.min(cart[id], c.avail);
+  });
+  var saveCart = function () { try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch (e) {} };
+
+  $("shop").textContent = DATA.shop || "卡櫃";
+  if (DATA.updated) $("updated").textContent = "庫存更新：" + DATA.updated;
+  if (DATA.error) { $("alert").textContent = DATA.error; $("alert").hidden = false; }
+
+  // 篩選：運動類型 → 系列 → 種類，選項互相連動並顯示張數（系列大小寫不同視為同一個）
+  var sKey = function (v) { return String(v || "").trim().replace(/\s+/g, " ").toLowerCase(); };
+  var FILTERS = [
+    { k: "cat", el: "fSport", all: "全部類型", get: function (c) { return c.sport || "其他"; }, order: ["F1", "棒球", "籃球", "其他"] },
+    { k: "series", el: "fSeries", all: "全部系列", get: function (c) { return sKey(c.series); }, show: function (c) { return String(c.series || "").trim(); } },
+    { k: "kind", el: "fKind", all: "全部種類", get: function (c) { return sKey(c.kind); }, show: function (c) { return String(c.kind || "").trim(); } }
+  ];
+  function matches(c, skip) {
+    return FILTERS.every(function (f) { return f.k === skip || !ui[f.k] || f.get(c) === ui[f.k]; });
+  }
+  function renderFilters() {
+    FILTERS.forEach(function (f) {
+      var counts = {}, label = {};
+      cards.forEach(function (c) {
+        if (!matches(c, f.k)) return;
+        var v = f.get(c); if (!v) return;
+        counts[v] = (counts[v] || 0) + 1;
+        if (!label[v]) label[v] = f.show ? f.show(c) : v;
+      });
+      var keys = Object.keys(counts).sort(function (a, b) {
+        if (f.order) return f.order.indexOf(a) - f.order.indexOf(b);
+        return a.localeCompare(b, "zh-Hant", { numeric: true });
+      });
+      if (ui[f.k] && !counts[ui[f.k]]) ui[f.k] = "";
+      var sel = $(f.el);
+      sel.innerHTML = '<option value="">' + f.all + '</option>' + keys.map(function (v) {
+        return '<option value="' + esc(v) + '"' + (ui[f.k] === v ? " selected" : "") + '>' + esc(label[v]) + '（' + counts[v] + '）</option>';
+      }).join("");
+      sel.hidden = keys.length < 2 && !ui[f.k];
+    });
+  }
+
+  var POS = { left: "0% 50%", right: "100% 50%" };
+  // grid tiles crop to the card frame using the seller's 照片位置; the detail view (full) shows the whole photo
+  function photoHTML(c, w, full) {
+    var st = !full && POS[c.pos] ? ' style="object-position:' + POS[c.pos] + '"' : "";
+    return c.photo
+      ? '<img src="' + img(c.photo, w) + '" alt="' + esc(c.name) + '" loading="lazy" data-o="' + esc(c.orient || "") + '"' + (c.rot ? ' data-r="' + esc(c.rot) + '"' : '') + ' data-alt="' + imgAlt(c.photo, w) + '"' + st + '>'
+      : '<div class="ph">' + esc(c.person || c.name) + '</div>';
+  }
+  // 照片方向：橫式／直式照 Notion 設定，自動＝照片寬大於高就用橫的格子
+  document.addEventListener("load", function (e) {
+    var t = e.target; if (!t || t.tagName !== "IMG" || t.dataset.o == null) return;
+    var slot = t.closest(".slot"); if (!slot) return;
+    var o = t.dataset.o;
+    slot.classList.toggle("land", !!t.dataset.r || o === "橫式" || (o !== "直式" && t.naturalWidth > t.naturalHeight * 1.05));
+  }, true);
+  document.addEventListener("error", function (e) {
+    var t = e.target;
+    if (t.tagName !== "IMG") return;
+    if (t.dataset.alt) { var a = t.dataset.alt; t.removeAttribute("data-alt"); t.src = a; }
+    else { var d = document.createElement("div"); d.className = "ph"; d.textContent = "照片暫時無法顯示"; t.replaceWith(d); }
+  }, true);
+
+  function list() {
+    var q = ui.q;
+    var out = cards.filter(function (c) {
+      return matches(c) &&
+        (!q || [c.name, c.person, c.series, c.no, c.kind, c.note].join(" ").toLowerCase().indexOf(q) >= 0);
+    });
+    var by = {
+      no: function (a, b) { return (b.year || 0) - (a.year || 0) || (numOf(a.no) == null ? 1e9 : numOf(a.no)) - (numOf(b.no) == null ? 1e9 : numOf(b.no)); },
+      new: function (a, b) { return (b.year || 0) - (a.year || 0) || (numOf(b.no) || 0) - (numOf(a.no) || 0); },
+      priceAsc: function (a, b) { return (a.price || 0) - (b.price || 0); },
+      priceDesc: function (a, b) { return (b.price || 0) - (a.price || 0); }
+    }[ui.sort];
+    return out.sort(by);
+  }
+
+  function controlHTML(c) {
+    if (c.status === "保留中") return '<button class="add" disabled>已保留</button>';
+    if (c.avail <= 0 && !cart[c.id]) return '<button class="add" disabled>已被訂走</button>';
+    var n = cart[c.id] || 0;
+    if (!n) return '<button class="add" data-act="inc">加入清單</button>';
+    return '<div class="stepper"><button data-act="dec" aria-label="減少一張">−</button><span>' + n + ' 張</span>' +
+      '<button data-act="inc" aria-label="增加一張"' + (n >= c.avail ? " disabled" : "") + '>＋</button></div>';
+  }
+
+  // 同年份＋系列＋種類＋卡號＝同一款，平行版合成一格，下方小框切換
+  var vsel = {};
+  var groupKey = function (c) { return c.no ? [c.year, sKey(c.series), sKey(c.kind), String(c.no).trim().toLowerCase()].join("|") : "id:" + c.id; };
+  function variantLabel(c) {
+    var t = String(c.name || ""), p = String(c.person || "").trim();
+    var i = p ? t.toLowerCase().lastIndexOf(p.toLowerCase()) : -1;
+    t = i >= 0 ? t.slice(i + p.length) : "";
+    t = t.replace(/^[\s\-–—·_]+/, "").trim();
+    return t || "基本";
+  }
+  var isBase = function (c) { return variantLabel(c) === "基本" ? 0 : 1; };
+  var canBuy = function (c) { return c.status !== "保留中" && c.avail > 0; };
+  function groupList(l) {
+    var m = {}, order = [];
+    l.forEach(function (c) { var k = groupKey(c); if (!m[k]) { m[k] = []; order.push(k); } m[k].push(c); });
+    return order.map(function (k) {
+      var g = m[k].sort(function (a, b) { return isBase(a) - isBase(b) || variantLabel(a).localeCompare(variantLabel(b)); });
+      var pick = g.find(function (c) { return c.id === vsel[k]; }) || g.find(canBuy) || g[0];
+      return { k: k, g: g, c: pick };
+    });
+  }
+  function varsHTML(x) {
+    if (x.g.length < 2) return "";
+    return '<div class="vars" role="group" aria-label="版本">' + x.g.map(function (v) {
+      return '<button type="button" data-var="' + esc(v.id) + '" data-key="' + esc(x.k) + '" aria-pressed="' + (v.id === x.c.id) + '"' +
+        (canBuy(v) ? "" : ' class="out"') + ' title="' + esc(variantLabel(v) + (v.price != null ? " · " + money(v.price) : "")) + '">' +
+        esc(variantLabel(v)) + (cart[v.id] ? '<span class="in" aria-label="已在清單"></span>' : "") + '</button>';
+    }).join("") + '</div>';
+  }
+
+  function render() {
+    renderFilters();
+    var l = groupList(list());
+    $("count").textContent = cards.filter(function (c) { return c.status !== "保留中" && c.avail > 0; }).length;
+    $("empty").hidden = l.length !== 0;
+    $("grid").innerHTML = l.map(function (x) {
+      var c = x.c, held = c.status === "保留中";
+      return '<article class="card' + (held ? " is-held" : "") + '" data-id="' + esc(c.id) + '">' +
+        '<button class="slot" data-act="open" aria-label="查看 ' + esc(c.name) + '">' + photoHTML(c, 480) +
+          (held ? "" : '<span class="stock' + (c.avail <= 2 ? " low" : "") + '">' + (c.avail > 0 ? '剩 ' + c.avail + ' 張' : '已被訂走') + '</span>') +
+          (held ? '<span class="held">保留中</span>' : "") + '</button>' +
+        '<div class="meta"><span class="chip">' + esc(c.sport) + (c.kind ? " · " + esc(c.kind) : "") + '</span>' +
+          '<div class="name">' + esc(c.person || c.name) + '</div>' +
+          '<div class="sub">' + esc([c.year, c.series, c.no].filter(Boolean).join(" · ")) + '</div>' +
+          (c.price != null ? '<div class="price">' + money(c.price) + '</div>' : '<div class="sub">價格請洽詢</div>') +
+          varsHTML(x) +
+        '</div>' + controlHTML(c) + '</article>';
+    }).join("");
+    renderBar();
+  }
+
+  function cartLines() {
+    return Object.keys(cart).map(function (id) {
+      var c = cards.find(function (x) { return x.id === id; });
+      return c && cart[id] > 0 ? { c: c, n: cart[id] } : null;
+    }).filter(Boolean);
+  }
+  function renderBar() {
+    var lines = cartLines(), n = 0, total = 0, unpriced = false;
+    lines.forEach(function (x) { n += x.n; if (x.c.price == null) unpriced = true; else total += x.c.price * x.n; });
+    $("selCount").textContent = n;
+    $("selTotal").textContent = money(total) + (unpriced ? " 起" : "");
+    $("openCart").disabled = !n;
+  }
+
+  function change(id, d) {
+    var c = cards.find(function (x) { return x.id === id; }); if (!c) return;
+    var before = cart[id] || 0;
+    var n = Math.max(0, Math.min(c.avail, before + d));
+    if (n) cart[id] = n; else delete cart[id];
+    if (d > 0 && n === before) toast("已達目前可購數量 " + c.avail + " 張");
+    saveCart(); render();
+    if (openWhat === "cart") renderCart(); else if (openWhat && openWhat !== "pay") renderDetail(openWhat);
+  }
+
+  $("grid").addEventListener("click", function (e) {
+    var v = e.target.closest("[data-var]");
+    if (v) { vsel[v.dataset.key] = v.dataset.var; render(); return; }
+    var b = e.target.closest("[data-act]"); if (!b) return;
+    var id = b.closest(".card").dataset.id;
+    if (b.dataset.act === "open") openDetail(id);
+    else change(id, b.dataset.act === "inc" ? 1 : -1);
+  });
+
+  /* ----- sheets ----- */
+  var openWhat = null;
+  function openSheet(what) { openWhat = what; $("scrim").hidden = false; $("sheet").hidden = false; }
+  function closeSheet() { openWhat = null; $("scrim").hidden = true; $("sheet").hidden = true; }
+  $("closeBtn").onclick = closeSheet; $("scrim").onclick = closeSheet;
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && openWhat) closeSheet(); });
+
+  function openDetail(id) { openSheet(id); renderDetail(id); }
+  // ----- 同車手推薦：看某張卡時，列出同一位車手（人名）還有現貨的其他卡 -----
+  var personKeys = function (c) {
+    return String(c.person || "").toLowerCase().split(/\s*(?:&|＆|,|，|、|\/|\band\b)\s*/)
+      .map(function (x) { return x.replace(/\s+/g, " ").trim(); }).filter(function (x) { return x.length > 1; });
+  };
+  function related(src, exclude, limit) {
+    var want = {}; src.forEach(function (c) { personKeys(c).forEach(function (k) { want[k] = 1; }); });
+    if (!Object.keys(want).length) return [];
+    var skipG = {}; src.forEach(function (c) { skipG[groupKey(c)] = 1; });
+    var seen = {}, out = [];
+    cards.forEach(function (c) {
+      if (exclude[c.id] || !canBuy(c) || skipG[groupKey(c)] || seen[groupKey(c)]) return;
+      if (!personKeys(c).some(function (k) { return want[k]; })) return;
+      seen[groupKey(c)] = 1; out.push(c);
+    });
+    var s0 = src[0] || {};
+    out.sort(function (a, b) {
+      return (sKey(b.series) === sKey(s0.series)) - (sKey(a.series) === sKey(s0.series)) || (Number(b.year) || 0) - (Number(a.year) || 0) ||
+        String(a.no).localeCompare(String(b.no), "zh-Hant", { numeric: true });
+    });
+    return out.slice(0, limit || 12);
+  }
+  function relatedHTML(list, title) {
+    if (!list.length) return "";
+    return '<section class="rel"><h3>' + esc(title) + '</h3><div class="rel-row" data-rel>' + list.map(function (c) {
+      return '<button type="button" data-rid="' + esc(c.id) + '"><span class="slot">' + photoHTML(c, 240) + '</span>' +
+        '<span class="rn">' + esc(c.person || c.name) + '</span><span class="rs">' + esc([c.kind, c.no].filter(Boolean).join(" · ")) + '<br>' +
+        (c.price != null ? money(c.price) : "請洽詢") + (cart[c.id] ? " · 已在清單" : "") + '</span></button>';
+    }).join("") + '</div></section>';
+  }
+  $("sheetBody").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-rid]"); if (!b) return;
+    openWhat = b.dataset.rid; renderDetail(b.dataset.rid); $("sheetBody").scrollTop = 0;
+  });
+
+  function renderDetail(id) {
+    var c = cards.find(function (x) { return x.id === id; }); if (!c) return closeSheet();
+    $("sheetTitle").textContent = c.name;
+    var rows = [["人名", c.person], ["運動類型", c.sport], ["年份", c.year], ["系列", c.series], ["卡號", c.no], ["種類", c.kind], ["版本", variantLabel(c) === "基本" ? "" : variantLabel(c)],
+      ["可購數量", c.status === "保留中" ? "保留中" : c.avail + " 張"], ["售價", c.price != null ? money(c.price) : "請洽詢"]]
+      .filter(function (r) { return r[1] !== "" && r[1] != null; });
+    $("sheetBody").innerHTML =
+      '<div class="slot big">' + photoHTML(c, 900, true) + '</div>' +
+      '<dl>' + rows.map(function (r) { return "<dt>" + r[0] + "</dt><dd>" + esc(r[1]) + "</dd>"; }).join("") + '</dl>' +
+      (c.note ? '<div class="intro">' + esc(c.note) + '</div>' : "") +
+      '<div class="card" data-id="' + esc(c.id) + '" id="detailCtl">' + controlHTML(c) + '</div>' +
+      relatedHTML(related([c], (function () { var x = {}; x[c.id] = 1; return x; })(), 12), (personKeys(c).length > 1 ? "這幾位車手的其他現貨" : (c.person || "同車手") + " 的其他現貨"));
+    $("detailCtl").onclick = function (e) { var b = e.target.closest("[data-act]"); if (b) change(c.id, b.dataset.act === "inc" ? 1 : -1); };
+  }
+
+  var buyer = { name: "", note: "" };
+  try { buyer = JSON.parse(localStorage.getItem("cardshop.buyer") || "null") || buyer; } catch (e) {}
+  var lastOrder = null;
+  try { lastOrder = JSON.parse(localStorage.getItem("cardshop.order") || "null"); } catch (e) {}
+  var showMyOrder = function () { $("myOrder").hidden = !lastOrder; if (lastOrder) $("myOrder").textContent = "我的訂單 #" + lastOrder.no; };
+  showMyOrder();
+
+  $("openCart").onclick = function () { openSheet("cart"); renderCart(); };
+  $("myOrder").onclick = function () { openSheet("pay"); renderPay(lastOrder); };
+
+  var buyMode = "onsite";
+  try { buyMode = localStorage.getItem("cardshop.mode") === "group" ? "group" : "onsite"; } catch (e) {}
+  // 社團購買：不建立訂單，產生一段清單文字讓買家私訊賣家
+  var SHIP = PAY.shipFee == null ? 38 : Number(PAY.shipFee) || 0;
+  // 社團購買的私訊內容；o 是已建立的訂單（有訂單編號），沒有的話用購物車內容預覽
+  function groupText(o) {
+    var rows = o ? o.items.map(function (it) { return { name: it.name, no: it.no, n: it.n, price: it.price }; })
+      : cartLines().map(function (x) { return { name: x.c.name, no: x.c.no, n: x.n, price: x.c.price }; });
+    var n = 0, total = 0, unpriced = false;
+    var body = rows.map(function (x, i) {
+      n += x.n;
+      if (x.price == null) unpriced = true; else total += x.price * x.n;
+      return (i + 1) + ". " + x.name + (x.no && x.name.indexOf(x.no) < 0 ? " " + x.no : "") + " × " + x.n + "　" +
+        (x.price == null ? "價格請報" : money(x.price * x.n));
+    });
+    var name = o ? o.name : buyer.name, note = o ? o.note : buyer.note, no = o ? "#" + o.no : "（按下按鈕後產生）";
+    return ["【社團購買】訂單編號 " + no, "FB 名稱：" + (name || "（請填寫）"), "", "我想購買以下卡片："]
+      .concat(body)
+      .concat(["", "共 " + n + " 張，商品 " + money(total) + (unpriced ? "（另有未標價項目）" : "")])
+      .concat(SHIP ? ["賣貨便運費 " + money(SHIP) + "，合計 " + money(total + SHIP)] : [])
+      .concat(note ? ["備註：" + note] : [])
+      .concat(["", "※ 如需修改訂單，請私訊提供 FB 名稱與訂單編號 " + no + "，由賣家確認後修改。",
+        "※ 每筆訂單單獨開賣貨便賣場，確認後不可與其他訂單合併。", "", "麻煩幫我開賣貨便賣場，謝謝！"]).join("\n");
+  }
+
+  function renderCart(msg) {
+    var lines = cartLines();
+    $("sheetTitle").textContent = "購物車";
+    if (!lines.length) { $("sheetBody").innerHTML = '<div class="note">購物車是空的，回到卡片牆按「加入清單」。</div>'; return; }
+    var total = 0, unpriced = false, count = 0;
+    lines.forEach(function (x) { count += x.n; if (x.c.price == null) unpriced = true; else total += x.c.price * x.n; });
+    $("sheetBody").innerHTML =
+      (msg ? '<div class="err">' + msg + '</div>' : "") +
+      '<ul class="lines">' + lines.map(function (x) {
+        return '<li><div><div class="n">' + esc(x.c.person || x.c.name) + '</div><div class="s">' +
+          esc([x.c.year, x.c.series, x.c.no].filter(Boolean).join(" · ")) + ' · ' + (x.c.price != null ? money(x.c.price) : "請洽詢") + '</div></div>' +
+          '<div class="stepper" data-id="' + esc(x.c.id) + '"><button data-act="dec" aria-label="減少一張">−</button><span>' + x.n + '</span>' +
+          '<button data-act="inc" aria-label="增加一張"' + (x.n >= x.c.avail ? " disabled" : "") + '>＋</button></div></li>';
+      }).join("") + '</ul>' +
+      '<div class="sum" style="font-size:15px">共 ' + count + ' 張，合計 <b class="price">' + money(total) + '</b>' + (unpriced ? '（另有未標價項目，請向賣家確認）' : '') + '</div>' +
+      '<div class="mode" role="group" aria-label="購買方式">' +
+        '<button type="button" data-mode="onsite" aria-pressed="' + (buyMode === "onsite") + '"><b>現場購買</b><span>結帳後用街口付款，當場取卡</span></button>' +
+        '<button type="button" data-mode="group" aria-pressed="' + (buyMode === "group") + '"><b>社團購買</b><span>複製清單私訊賣家，賣家開賣貨便給您</span></button>' +
+      '</div>' +
+      (buyMode === "group"
+        ? '<div class="field"><label for="bName">您的 FB 名稱（必填，日後修改訂單要核對名稱與訂單編號）</label><input id="bName" value="' + esc(buyer.name) + '" autocomplete="nickname"></div>' +
+          '<div class="field"><label for="bNote">備註（選填）</label><input id="bNote" value="' + esc(buyer.note) + '"></div>' +
+          '<div class="field"><label for="out">要私訊給賣家的訊息（預覽）</label><textarea class="out" id="out" readonly></textarea></div>' +
+          '<button class="btn primary" id="copyBtn">複製清單並保留卡片</button>' +
+          '<div class="note">按下後會建立訂單編號、先幫您保留這些卡片，並複製清單，請貼到私訊傳給賣家。' +
+            (PAY.groupHold ? '<br>保留 ' + PAY.groupHold + ' 小時，期間沒有完成付款會自動取消。' : '') +
+            (SHIP ? '<br><b>採用賣貨便寄送，需另加運費 ' + money(SHIP) + '。</b>' : '') +
+            (PAY.groupNote ? '<br>' + esc(PAY.groupNote) : '') + '</div>'
+        : '<div class="field"><label for="bName">您的稱呼（選填）</label><input id="bName" value="' + esc(buyer.name) + '"></div>' +
+          '<div class="field"><label for="bNote">備註（選填）</label><input id="bNote" value="' + esc(buyer.note) + '"></div>' +
+          '<button class="btn primary" id="checkoutBtn">結帳</button>' +
+          '<div class="note">按結帳後會保留這些卡片給您，並顯示街口付款資訊。' + (PAY.hold ? '保留 ' + PAY.hold + ' 小時，沒有付款會自動取消。' : '') + '</div>') +
+      '<button class="btn" id="clearBtn">清空購物車</button>' +
+      relatedHTML(related(lines.map(function (x) { return x.c; }), cart, 12), "同車手還有這些現貨");
+    $("sheetBody").querySelector(".lines").onclick = function (e) {
+      var b = e.target.closest("[data-act]"); if (!b) return;
+      change(b.closest(".stepper").dataset.id, b.dataset.act === "inc" ? 1 : -1);
+    };
+    var upd = function () {
+      buyer = { name: $("bName").value.trim(), note: $("bNote").value.trim() };
+      try { localStorage.setItem("cardshop.buyer", JSON.stringify(buyer)); } catch (e) {}
+      if ($("out")) $("out").value = groupText();
+    };
+    $("bName").oninput = upd; $("bNote").oninput = upd;
+    $("sheetBody").querySelector(".mode").onclick = function (e) {
+      var b = e.target.closest("[data-mode]"); if (!b) return;
+      buyMode = b.dataset.mode;
+      try { localStorage.setItem("cardshop.mode", buyMode); } catch (er) {}
+      renderCart();
+    };
+    if (buyMode === "group") {
+      $("out").value = groupText();
+      $("copyBtn").onclick = function () {
+        if (!buyer.name) { toast("請先填您的 FB 名稱"); $("bName").focus(); return; }
+        checkout("group");
+      };
+    } else $("checkoutBtn").onclick = function () { checkout("onsite"); };
+    var cb = $("clearBtn");
+    cb.onclick = function () {
+      if (!cb.dataset.confirm) { cb.dataset.confirm = "1"; cb.textContent = "確定清空？"; return; }
+      cart = {}; saveCart(); render(); renderCart();
+    };
+  }
+
+  function copyText(text, ta) {
+    var done = function () { toast("已複製，請貼到私訊傳給賣家"); };
+    var fallback = function () {
+      if (ta) { ta.focus(); ta.select(); }
+      try { if (document.execCommand("copy")) return done(); } catch (er) {}
+      toast("請按「複製清單」，或長按文字框全選後複製");
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+    else fallback();
+  }
+  function checkout(mode) {
+    var btn = $(mode === "group" ? "copyBtn" : "checkoutBtn"), label = btn.textContent; btn.disabled = true; btn.textContent = "建立訂單中…";
+    var items = cartLines().map(function (x) { return { id: x.c.id, n: x.n }; });
+    if (!(window.google && google.script && google.script.run)) { btn.disabled = false; btn.textContent = label; return toast("預覽模式無法結帳"); }
+    google.script.run
+      .withSuccessHandler(function (r) {
+        if (!r || !r.ok) {
+          if (r && r.problems) {
+            r.problems.forEach(function (p) {
+              var c = cards.find(function (x) { return x.id === p.id; });
+              if (c) c.avail = p.avail;
+              if (p.avail > 0) cart[p.id] = Math.min(cart[p.id] || 0, p.avail); else delete cart[p.id];
+            });
+            saveCart(); render();
+            return renderCart("有卡片剛被別人訂走，已幫您調整數量：" + r.problems.map(function (p) { return p.name + "（剩 " + p.avail + " 張）"; }).join("、") + "。請確認後再按結帳。");
+          }
+          return renderCart((r && r.message) || "結帳失敗，請再試一次");
+        }
+        r.items.forEach(function (it) { var c = cards.find(function (x) { return x.id === it.id; }); if (c) c.avail = Math.max(0, c.avail - it.n); });
+        lastOrder = { no: r.no, total: r.total, unpriced: r.unpriced, items: r.items, pay: r.pay, at: Date.now(),
+          mode: r.mode || (mode === "group" ? "社團" : "現場"), name: r.name != null ? r.name : buyer.name, note: r.note != null ? r.note : buyer.note };
+        try { localStorage.setItem("cardshop.order", JSON.stringify(lastOrder)); } catch (e) {}
+        cart = {}; saveCart(); render(); showMyOrder();
+        openWhat = "pay"; renderPay(lastOrder);
+        if (lastOrder.mode === "社團") copyText(groupText(lastOrder), $("out2"));
+      })
+      .withFailureHandler(function (err) { renderCart("結帳失敗：" + (err && err.message || "請再試一次")); })
+      .createOrder({ items: items, name: buyer.name, note: buyer.note, mode: mode, client: CLIENT });
+  }
+
+  function renderGroupDone(o) {
+    $("sheetTitle").textContent = "社團購買";
+    $("sheetBody").innerHTML =
+      '<div class="pay">' +
+        '<div class="ono">訂單編號<b>' + esc(o.no) + '</b></div>' +
+        '<span class="status" id="ostat">待付款</span>' +
+        '<div class="note">卡片已幫您保留。請把下面的清單貼到私訊傳給賣家，賣家會開賣貨便賣場給您下單付款。' +
+          (SHIP ? '<br><b>賣貨便運費 ' + money(SHIP) + '，合計 ' + money((o.total || 0) + SHIP) + '</b>' : '') + '</div>' +
+        '<textarea class="out" id="out2" readonly style="align-self:stretch;min-height:240px">' + esc(groupText(o)) + '</textarea>' +
+        '<button class="btn primary" id="copyAgain" style="align-self:stretch">複製清單</button>' +
+        '<div class="note" style="text-align:left">需要修改訂單時，請私訊提供 FB 名稱「' + esc(o.name || "") + '」與訂單編號 #' + esc(o.no) + '。<br>每筆訂單單獨開賣場，確認後不可與其他訂單合併。</div>' +
+        '<button class="btn" id="checkStat">重新查詢訂單狀態</button>' +
+        '<button class="btn" id="forget">這筆已完成，關閉</button>' +
+      '</div>';
+    $("copyAgain").onclick = function () { copyText($("out2").value, $("out2")); };
+  }
+  function renderPay(o) {
+    if (!o) return closeSheet();
+    var pay = o.pay || PAY;
+    if (o.mode === "社團") renderGroupDone(o); else {
+    $("sheetTitle").textContent = "付款";
+    $("sheetBody").innerHTML =
+      '<div class="pay">' +
+        '<div class="ono">訂單編號<b>' + esc(o.no) + '</b></div>' +
+        '<span class="status" id="ostat">待付款</span>' +
+        '<div class="ono">應付金額</div><div class="amt">' + money(o.total) + '</div>' +
+        (o.unpriced ? '<div class="note">另有未標價的卡片，金額請向賣家確認。</div>' : '') +
+        (pay.qr ? '<div class="qr"><img src="' + img(pay.qr, 600) + '" data-alt="' + imgAlt(pay.qr, 600) + '" alt="街口收款碼"></div>' : '<div class="note">請向賣家索取街口收款碼。</div>') +
+        '<ol class="steps">' +
+          '<li>打開街口支付，掃描上方收款碼</li>' +
+          '<li>金額輸入 <b>' + money(o.total) + '</b></li>' +
+          '<li>備註填訂單編號 <b>' + esc(o.no) + '</b></li>' +
+          '<li>付款完成後，把這個畫面給賣家看，領取卡片</li>' +
+        '</ol>' +
+        (pay.note ? '<div class="note">' + esc(pay.note) + '</div>' : '') +
+        '<ul class="lines" style="align-self:stretch;text-align:left">' + o.items.map(function (it) {
+          return '<li><div><div class="n">' + esc(it.person || it.name) + '</div><div class="s">' + esc([it.year, it.series, it.no].filter(Boolean).join(" · ")) + '</div></div><div>× ' + it.n + '</div></li>';
+        }).join("") + '</ul>' +
+        '<button class="btn" id="checkStat">重新查詢付款狀態</button>' +
+        '<button class="btn" id="forget">這筆已完成，關閉</button>' +
+      '</div>';
+    }
+    var setStat = function (st) {
+      var el = $("ostat"); if (!el || !st) return;
+      el.textContent = st; el.className = "status" + (st === "已付款" ? " paid" : st === "已完成" ? " done" : st === "已取消" ? " cancel" : "");
+    };
+    var check = function () {
+      if (!(window.google && google.script && google.script.run)) return;
+      google.script.run.withSuccessHandler(function (r) { if (r) setStat(r.status); }).orderStatus(o.no);
+    };
+    check();
+    $("checkStat").onclick = check;
+    var fb = $("forget");
+    fb.onclick = function () {
+      if (!fb.dataset.confirm) { fb.dataset.confirm = "1"; fb.textContent = "確定關閉？關閉後這個畫面就不會再顯示"; return; }
+      lastOrder = null; try { localStorage.removeItem("cardshop.order"); } catch (e) {}
+      showMyOrder(); closeSheet();
+    };
+  }
+
+  /* ----- filters ----- */
+  FILTERS.forEach(function (f) {
+    $(f.el).addEventListener("change", function (e) { ui[f.k] = e.target.value; render(); });
+  });
+  $("q").addEventListener("input", function (e) { ui.q = e.target.value.trim().toLowerCase(); render(); });
+  $("sort").addEventListener("change", function (e) { ui.sort = e.target.value; render(); });
+
+  render();
+};
+</script>
+</body>
+</html>
