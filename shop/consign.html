@@ -64,13 +64,19 @@ a{color:var(--accent)}
   <form class="form" id="f" autocomplete="off" novalidate>
     <div class="sec">卡片照片</div>
     <div class="photo">
-      <div class="slot" id="prev">還沒選照片</div>
+      <div class="slot" id="prev">貼上網址後<br>會顯示預覽</div>
       <div class="field" style="flex:1">
-        <label for="photo">卡片正面一張 <span class="req">*</span></label>
-        <input id="photo" type="file" accept="image/*">
-        <div class="note" id="photoInfo">會自動壓縮到約 300KB 再上傳</div>
+        <label for="photoUrl">卡片正面照片網址 <span class="req">*</span></label>
+        <input id="photoUrl" type="url" inputmode="url" placeholder="https://drive.google.com/file/d/…">
+        <div class="note" id="photoInfo">照片請先壓縮到 <b>300KB 以下</b>，送出時會檢查，太大要重新提供網址。</div>
       </div>
     </div>
+    <details class="note"><summary>怎麼拿到照片網址？</summary>
+      <div style="margin-top:6px">
+        <b>Google 硬碟</b>：上傳照片 → 照片上按「共用」→ 一般存取權改成「知道連結的任何人」→「複製連結」貼上。<br>
+        <b>其他圖片空間</b>（如 Imgur）：上傳後在圖片上按右鍵或長按 →「複製圖片網址」，網址通常是 .jpg 結尾。<br>
+        <b>照片太大</b>：可以用手機相簿的「編輯／調整大小」，或免費網站 squoosh.app 壓縮成 JPG，品質 70～80 通常就會在 300KB 以下。
+      </div></details>
 
     <div class="sec">卡片資料</div>
     <div class="field"><label for="name">卡片名稱 <span class="req">*</span></label><input id="name" placeholder="例如：2026 Topps Chrome Lando Norris Refractor"></div>
@@ -96,7 +102,7 @@ a{color:var(--accent)}
     </div>
 
     <div class="err" id="err" hidden></div>
-    <button class="btn primary" id="go" type="submit">送出，等待核准</button>
+    <button class="btn primary" id="go" type="submit">檢查照片並送出</button>
   </form>
 
   <div class="done" id="done" hidden>
@@ -109,72 +115,47 @@ a{color:var(--accent)}
 (function () {
   var API = (window.SHOP_CONFIG && window.SHOP_CONFIG.api) || "";
   var $ = function (id) { return document.getElementById(id); };
-  var photo = "";
   var CLIENT = (function () { try { var v = localStorage.getItem("cardshop.client"); if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("cardshop.client", v); } return v; } catch (e) { return ""; } })();
   // 記住上架者和聯絡方式，下次不用重打
   try { var me = JSON.parse(localStorage.getItem("cardshop.seller") || "{}"); $("seller").value = me.seller || ""; $("contact").value = me.contact || ""; $("sport").value = me.sport || "F1"; } catch (e) {}
 
-  // 照片壓縮：最長邊先縮到 1600px，JPEG 品質逐步降低；還太大就再縮小尺寸，直到約 300KB 以下
-  var TARGET = 300 * 1024;
-  var bytes = function (dataUrl) { return Math.round((dataUrl.length - dataUrl.indexOf(",") - 1) * 3 / 4); };
-  function loadImg(file) {
-    return new Promise(function (ok, bad) {
-      var u = URL.createObjectURL(file), im = new Image();
-      im.onload = function () { ok(im); URL.revokeObjectURL(u); };
-      im.onerror = function () { bad(new Error("讀不到這張照片，請換一張（建議 JPG）")); URL.revokeObjectURL(u); };
-      im.src = u;
-    });
-  }
-  async function compress(file) {
-    var im = await loadImg(file);
-    var side = Math.min(1600, Math.max(im.naturalWidth, im.naturalHeight)), out = "";
-    for (var round = 0; round < 6; round++) {
-      var k = side / Math.max(im.naturalWidth, im.naturalHeight);
-      var c = document.createElement("canvas");
-      c.width = Math.max(1, Math.round(im.naturalWidth * k)); c.height = Math.max(1, Math.round(im.naturalHeight * k));
-      var g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
-      var qs = [0.85, 0.75, 0.65, 0.55];
-      for (var i = 0; i < qs.length; i++) { out = c.toDataURL("image/jpeg", qs[i]); if (bytes(out) <= TARGET) return { url: out, w: c.width, h: c.height }; }
-      side = Math.round(side * 0.8);
-    }
-    return { url: out, w: 0, h: 0 };
-  }
-  $("photo").onchange = async function () {
-    var f = this.files[0]; photo = ""; if (!f) return;
-    $("photoInfo").textContent = "壓縮中…";
-    try {
-      var r = await compress(f);
-      photo = r.url;
-      $("prev").innerHTML = '<img alt="卡片照片預覽" src="' + photo + '">';
-      $("photoInfo").textContent = "原檔 " + Math.round(f.size / 1024) + "KB → 上傳 " + Math.round(bytes(photo) / 1024) + "KB" + (r.w ? "（" + r.w + "×" + r.h + "）" : "");
-    } catch (e) { $("photoInfo").textContent = e.message; }
+  // 照片網址預覽（Google 硬碟分享連結會轉成縮圖網址顯示）
+  var driveId = function (u) { var m = String(u).match(/\/d\/([\w-]{20,})/) || String(u).match(/[?&]id=([\w-]{20,})/); return m ? m[1] : ""; };
+  var previewSrc = function (u) { var id = driveId(u); return id ? "https://drive.google.com/thumbnail?id=" + id + "&sz=w400" : u; };
+  $("photoUrl").oninput = function () {
+    var u = this.value.trim();
+    if (!/^https?:\/\//i.test(u)) { $("prev").innerHTML = "貼上網址後<br>會顯示預覽"; return; }
+    var im = new Image(); im.alt = "卡片照片預覽";
+    im.onload = function () { $("prev").innerHTML = ""; $("prev").appendChild(im); };
+    im.onerror = function () { $("prev").textContent = "看不到這張照片，請確認已開放「知道連結的任何人」檢視"; };
+    im.src = previewSrc(u);
   };
 
   function showErr(m) { $("err").textContent = m; $("err").hidden = !m; }
   $("f").onsubmit = function (e) {
     e.preventDefault(); showErr("");
     var v = function (id) { return $(id).value.trim(); };
-    if (!photo) return showErr("請選一張卡片照片");
+    if (!/^https?:\/\//i.test(v("photoUrl"))) return showErr("請貼上卡片照片的網址");
     if (!v("name")) return showErr("請填卡片名稱");
     if (v("price") === "" || Number(v("price")) < 0) return showErr("請填售價");
     if (!v("seller") || !v("contact")) return showErr("請填上架者名稱和聯絡方式，買家才找得到你");
     if (!API) return showErr("網站還沒設定完成，請聯絡賣家");
-    var body = { action: "consign", client: CLIENT, photo: photo, name: v("name"), sport: v("sport"), year: v("year"), no: v("no"), series: v("series"),
+    var body = { action: "consign", client: CLIENT, photoUrl: v("photoUrl"), name: v("name"), sport: v("sport"), year: v("year"), no: v("no"), series: v("series"),
       kind: v("kind"), price: v("price"), qty: v("qty") || 1, note: v("note"), seller: v("seller"), contact: v("contact") };
     try { localStorage.setItem("cardshop.seller", JSON.stringify({ seller: body.seller, contact: body.contact, sport: body.sport })); } catch (e) {}
-    var b = $("go"); b.disabled = true; b.textContent = "上傳中…";
+    var b = $("go"); b.disabled = true; b.textContent = "檢查照片中…";
     fetch(API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) })
       .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
       .then(function (r) {
-        b.disabled = false; b.textContent = "送出，等待核准";
-        if (!r.ok) return showErr(r.message || "送出失敗，請再試一次");
+        b.disabled = false; b.textContent = "檢查照片並送出";
+        if (!r.ok) { if (r.field) $(r.field).focus(); return showErr(r.message || "送出失敗，請再試一次"); }
         $("f").hidden = true; $("done").hidden = false; window.scrollTo(0, 0);
       })
-      .catch(function () { b.disabled = false; b.textContent = "送出，等待核准"; showErr("連不上伺服器，請檢查網路後再試一次"); });
+      .catch(function () { b.disabled = false; b.textContent = "檢查照片並送出"; showErr("連不上伺服器，請檢查網路後再試一次"); });
   };
   $("again").onclick = function () {
     ["name", "year", "no", "series", "kind", "price", "note"].forEach(function (id) { $(id).value = ""; });
-    $("qty").value = 1; $("photo").value = ""; photo = ""; $("prev").textContent = "還沒選照片"; $("photoInfo").textContent = "會自動壓縮到約 300KB 再上傳";
+    $("qty").value = 1; $("photoUrl").value = ""; $("prev").innerHTML = "貼上網址後<br>會顯示預覽";
     $("done").hidden = true; $("f").hidden = false;
   };
 })();
