@@ -635,7 +635,7 @@ async function openStream(){
   try{
     S.stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:3840},height:{ideal:2160}}});
   }catch(e){
-    $('modeNote').textContent='無法開啟相機（在 Claude 裡面會被封鎖）。請改用「匯入影片」，或用獨立網址開啟此工具。';
+    $('modeNote').innerHTML='無法開啟相機預覽：在 Claude App 裡面相機會被封鎖。「拍照（iPhone 相機）」和「從相簿匯入」仍可使用；要開預覽或自動拍，請用 Safari 開 <a href="https://lin1102jm-cpu.github.io/card-inventory/cardbox/" target="_blank" rel="noopener">lin1102jm-cpu.github.io/card-inventory/cardbox</a>。';
     $('modeNote').className='note warn'; return false;
   }
   video.srcObject=S.stream; await video.play(); return true;
