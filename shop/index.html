@@ -34,6 +34,9 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(32px,6vw,46px);l
 .head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .viewbtn{flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:13px;min-height:34px}
 html.view-phone .wrap{max-width:520px}
+.chip.cs{background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--accent)}
+.seller{font-size:12.5px;color:var(--muted)}
+.cs-box{border:1px dashed var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
 html.view-phone .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .alert{padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--warn) 14%,var(--surface));border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line))}
 
@@ -64,7 +67,7 @@ html.view-phone .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .slot img[data-r="向右轉"]{transform:translate(-50%,-50%) rotate(90deg)}
 .slot img[data-r="向左轉"]{transform:translate(-50%,-50%) rotate(-90deg)}
 .slot.land:not(.big) img[data-r="向右轉"],.slot.land:not(.big) img[data-r="向左轉"]{left:50%;right:auto;bottom:auto;aspect-ratio:auto;top:74.37%;width:71.59%;height:71.59%}
-.slot.land.big{flex:none}
+.slot.big{flex:none}
 .slot.land.big img[data-r="向右轉"],.slot.land.big img[data-r="向左轉"]{top:50%;width:71.59%;height:139.68%}
 .rel h3{font-size:14px;margin:4px 0 8px;font-weight:700}
 .rel-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x proximity}
@@ -321,6 +324,7 @@ window.__boot = function () {
   // grid tiles crop to the card frame using the seller's 照片位置; the detail view (full) shows the whole photo
   function photoHTML(c, w, full) {
     var st = !full && POS[c.pos] ? ' style="object-position:' + POS[c.pos] + '"' : "";
+    if (c.photoUrl) return '<img src="' + esc(c.photoUrl) + '" alt="' + esc(c.name) + '" loading="lazy" data-o=""' + st + '>';
     return c.photo
       ? '<img src="' + img(c.photo, w) + '" alt="' + esc(c.name) + '" loading="lazy" data-o="' + esc(c.orient || "") + '"' + (c.rot ? ' data-r="' + esc(c.rot) + '"' : '') + ' data-alt="' + imgAlt(c.photo, w) + '"' + st + '>'
       : '<div class="ph">' + esc(c.person || c.name) + '</div>';
@@ -355,6 +359,7 @@ window.__boot = function () {
   }
 
   function controlHTML(c) {
+    if (c.consign) return '<button class="add" data-act="open">聯絡上架者</button>';
     if (c.status === "保留中") return '<button class="add" disabled>已保留</button>';
     if (c.avail <= 0 && !cart[c.id]) return '<button class="add" disabled>已被訂走</button>';
     var n = cart[c.id] || 0;
@@ -365,7 +370,7 @@ window.__boot = function () {
 
   // 同年份＋系列＋種類＋卡號＝同一款，平行版合成一格，下方小框切換
   var vsel = {};
-  var groupKey = function (c) { return c.no ? [c.year, sKey(c.series), sKey(c.kind), String(c.no).trim().toLowerCase()].join("|") : "id:" + c.id; };
+  var groupKey = function (c) { return c.no && !c.consign ? [c.year, sKey(c.series), sKey(c.kind), String(c.no).trim().toLowerCase()].join("|") : "id:" + c.id; };
   function variantLabel(c) {
     var t = String(c.name || ""), p = String(c.person || "").trim();
     var i = p ? t.toLowerCase().lastIndexOf(p.toLowerCase()) : -1;
@@ -404,8 +409,8 @@ window.__boot = function () {
         '<button class="slot" data-act="open" aria-label="查看 ' + esc(c.name) + '">' + photoHTML(c, 480) +
           (held ? "" : '<span class="stock' + (c.avail <= 2 ? " low" : "") + '">' + (c.avail > 0 ? '剩 ' + c.avail + ' 張' : '已被訂走') + '</span>') +
           (held ? '<span class="held">保留中</span>' : "") + '</button>' +
-        '<div class="meta"><span class="chip">' + esc(c.sport) + (c.kind ? " · " + esc(c.kind) : "") + '</span>' +
-          '<div class="name">' + esc(c.person || c.name) + '</div>' +
+        '<div class="meta"><span class="chip">' + esc(c.sport) + (c.kind ? " · " + esc(c.kind) : "") + '</span>' + (c.consign ? ' <span class="chip cs">寄賣</span>' : '') +
+          '<div class="name">' + esc(c.person || c.name) + '</div>' + (c.consign && c.seller ? '<div class="seller">上架者：' + esc(c.seller) + '</div>' : '') +
           '<div class="sub">' + esc([c.year, c.series, c.no].filter(Boolean).join(" · ")) + '</div>' +
           (c.price != null ? '<div class="price">' + money(c.price) + '</div>' : '<div class="sub">價格請洽詢</div>') +
           varsHTML(x) +
@@ -494,7 +499,7 @@ window.__boot = function () {
     var c = cards.find(function (x) { return x.id === id; }); if (!c) return closeSheet();
     $("sheetTitle").textContent = c.name;
     var rows = [["人名", c.person], ["運動類型", c.sport], ["年份", c.year], ["系列", c.series], ["卡號", c.no], ["種類", c.kind], ["版本", variantLabel(c) === "基本" ? "" : variantLabel(c)],
-      ["可購數量", c.status === "保留中" ? "保留中" : c.avail + " 張"], ["售價", c.price != null ? money(c.price) : "請洽詢"]]
+      ["上架者", c.consign ? c.seller : ""], ["可購數量", c.status === "保留中" ? "保留中" : c.avail + " 張"], ["售價", c.price != null ? money(c.price) : "請洽詢"]]
       .filter(function (r) { return r[1] !== "" && r[1] != null; });
     $("sheetBody").innerHTML =
       '<div class="slot big">' + photoHTML(c, 900, true) + '</div>' +
@@ -503,6 +508,20 @@ window.__boot = function () {
       '<div class="card" data-id="' + esc(c.id) + '" id="detailCtl">' + controlHTML(c) + '</div>' +
       relatedHTML(related([c], (function () { var x = {}; x[c.id] = 1; return x; })(), 12), (personKeys(c).length > 1 ? "這幾位車手的其他現貨" : (c.person || "同車手") + " 的其他現貨"));
     $("detailCtl").onclick = function (e) { var b = e.target.closest("[data-act]"); if (b) change(c.id, b.dataset.act === "inc" ? 1 : -1); };
+    if (c.consign) renderConsign(c);
+  }
+  // 寄賣卡：買家直接聯絡上架者，本店不經手付款與出貨
+  function renderConsign(c) {
+    var msg = "您好，我想買「" + c.name + "」" + (c.price != null ? money(c.price) : "") + "，請問還有嗎？";
+    var link = /^https?:\/\//i.test(c.contact || "") ? c.contact : "";
+    $("detailCtl").outerHTML = '<div class="cs-box">' +
+      '<div><b>寄賣卡・請直接聯絡上架者</b></div>' +
+      '<div>上架者：' + esc(c.seller || "（未填）") + '</div>' +
+      '<div>聯絡方式：' + (link ? '<a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(link) + '</a>' : esc(c.contact || "（未填）")) + '</div>' +
+      '<textarea class="out" id="csMsg" readonly style="min-height:70px">' + esc(msg) + '</textarea>' +
+      '<button class="btn primary" id="csCopy">複製詢問訊息</button>' +
+      '<div class="note" style="text-align:left">這張卡由其他賣家上架，付款與出貨請和上架者直接確認，本店不經手。</div></div>';
+    $("csCopy").onclick = function () { copyText($("csMsg").value, $("csMsg")); };
   }
 
   var buyer = { name: "", note: "" };
