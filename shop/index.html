@@ -410,7 +410,7 @@ window.__boot = function () {
           (held ? "" : '<span class="stock' + (c.avail <= 2 ? " low" : "") + '">' + (c.avail > 0 ? '剩 ' + c.avail + ' 張' : '已被訂走') + '</span>') +
           (held ? '<span class="held">保留中</span>' : "") + '</button>' +
         '<div class="meta"><span class="chip">' + esc(c.sport) + (c.kind ? " · " + esc(c.kind) : "") + '</span>' + (c.consign ? ' <span class="chip cs">寄賣</span>' : '') +
-          '<div class="name">' + esc(c.person || c.name) + '</div>' + (c.consign && c.seller ? '<div class="seller">上架者：' + esc(c.seller) + '</div>' : '') +
+          '<div class="name">' + esc(c.person || c.name) + '</div>' + (c.consign && c.seller ? '<div class="seller">上架者：' + esc(c.seller) + '（與本賣場無關）</div>' : '') +
           '<div class="sub">' + esc([c.year, c.series, c.no].filter(Boolean).join(" · ")) + '</div>' +
           (c.price != null ? '<div class="price">' + money(c.price) + '</div>' : '<div class="sub">價格請洽詢</div>') +
           varsHTML(x) +
@@ -520,7 +520,7 @@ window.__boot = function () {
       '<div>聯絡方式：' + (link ? '<a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(link) + '</a>' : esc(c.contact || "（未填）")) + '</div>' +
       '<textarea class="out" id="csMsg" readonly style="min-height:70px">' + esc(msg) + '</textarea>' +
       '<button class="btn primary" id="csCopy">複製詢問訊息</button>' +
-      '<div class="note" style="text-align:left">這張卡由其他賣家上架，付款與出貨請和上架者直接確認，本店不經手。</div></div>';
+      '<div class="note" style="text-align:left"><b>免責聲明</b>：寄賣卡由其他賣家自行上架，交易僅是買賣雙方之間的行為，與本賣場無關。商品真偽、卡況、超賣、付款與出貨等任何糾紛，均由買賣雙方自行承擔，本賣場不提供任何保障。請自行確認後再付款。</div></div>';
     $("csCopy").onclick = function () { copyText($("csMsg").value, $("csMsg")); };
   }
 

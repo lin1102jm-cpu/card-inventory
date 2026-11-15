@@ -60,6 +60,9 @@ a{color:var(--accent)}
     你送出的卡片要等賣家核准後，才會出現在<a href="./" id="shopLink">卡櫃買家頁</a>；買家頁也是知道連結的人都看得到，內容包含照片、售價、上架者名稱和聯絡方式。<br>
     買家會直接聯絡你交易，付款與出貨由你們雙方自行確認，本店不經手。資料送出後第 8 天自動刪除。
   </div>
+  <div class="notice" style="border-color:color-mix(in srgb,var(--sold) 45%,var(--line))">
+    <b>免責聲明</b><br>你上架的寄賣卡，交易僅是買賣雙方之間的行為，與本賣場無關。商品真偽、卡況、超賣、付款與出貨等任何糾紛，均由買賣雙方自行承擔，本賣場不提供任何保障。你必須確保數量正確、卡片在你手上，賣出後請自行下架或通知賣家；若有超賣或交易糾紛，由你自行負責。
+  </div>
 
   <form class="form" id="f" autocomplete="off" novalidate>
     <div class="sec">卡片照片</div>
@@ -101,6 +104,7 @@ a{color:var(--accent)}
       <div class="field"><label for="contact">聯絡方式 <span class="req">*</span></label><input id="contact" placeholder="FB 個人頁連結或 LINE ID"></div>
     </div>
 
+    <label class="note" style="display:flex;gap:8px;align-items:flex-start;color:var(--ink)"><input type="checkbox" id="agree" style="width:auto;min-height:0;margin-top:4px">我已閱讀並同意上方免責聲明：交易與本賣場無關，超賣或任何糾紛由我自行承擔。</label>
     <div class="err" id="err" hidden></div>
     <button class="btn primary" id="go" type="submit">檢查照片並送出</button>
   </form>
@@ -139,6 +143,7 @@ a{color:var(--accent)}
     if (!v("name")) return showErr("請填卡片名稱");
     if (v("price") === "" || Number(v("price")) < 0) return showErr("請填售價");
     if (!v("seller") || !v("contact")) return showErr("請填上架者名稱和聯絡方式，買家才找得到你");
+    if (!$("agree").checked) return showErr("請先勾選同意免責聲明");
     if (!API) return showErr("網站還沒設定完成，請聯絡賣家");
     var body = { action: "consign", client: CLIENT, photoUrl: v("photoUrl"), name: v("name"), sport: v("sport"), year: v("year"), no: v("no"), series: v("series"),
       kind: v("kind"), price: v("price"), qty: v("qty") || 1, note: v("note"), seller: v("seller"), contact: v("contact") };
