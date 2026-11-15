@@ -108,7 +108,7 @@ dialog .row{justify-content:center;margin-top:10px}
 
   <div class="tabs" role="tablist">
     <button role="tab" id="tabCam" aria-selected="true">即時相機</button>
-    <button role="tab" id="tabVid" aria-selected="false">匯入影片</button>
+    <button role="tab" id="tabVid" aria-selected="false">匯入影片／照片</button>
   </div>
 
   <div class="stage" id="stage">
@@ -130,6 +130,9 @@ dialog .row{justify-content:center;margin-top:10px}
     </div>
     <button class="btn primary grow" id="btnStart" disabled>開始</button>
     <button class="btn grow" id="btnShot" disabled>手動拍一張</button>
+    <button class="btn grow" id="btnLib" hidden>從相簿匯入</button>
+    <input type="file" id="photoCam" accept="image/*" capture="environment" hidden>
+    <input type="file" id="photoLib" accept="image/*" multiple hidden>
   </div>
   <div class="frame-ctl" id="frameCtl" hidden>
     <button class="btn sm" id="btnFrame" aria-pressed="false">圖框裁切：關</button>
@@ -140,6 +143,7 @@ dialog .row{justify-content:center;margin-top:10px}
   <p class="note" id="frameNote" hidden>拖動圖框移動，拖四個角等比例縮放（固定卡片比例 63:88）。兩指可以縮放畫面。開著圖框時，拍照會照圖框裁切，不做自動偵測。</p>
   <div class="row" id="vidCtl" hidden>
     <label class="btn primary grow" for="fileIn" style="text-align:center">選擇影片…</label>
+    <label class="btn grow" for="photoLib" style="text-align:center">選擇照片…</label>
     <input type="file" id="fileIn" accept="video/*" hidden>
     <button class="btn grow" id="btnStopVid" disabled>停止分析</button>
   </div>
@@ -214,6 +218,19 @@ var Module = { onRuntimeInitialized(){ window.__cvReady && window.__cvReady(); }
 <script>
 (() => {
 const $ = id => document.getElementById(id);
+// 廣色域：支援 Display P3 的瀏覽器（iPhone Safari）全程用 P3 畫布，避免飽和度被壓掉
+// 先測試：P3 畫布存成 JPEG 時有沒有帶 ICC 色彩設定檔；沒帶就不用 P3（否則顏色會變淡）
+let P3=false;
+(async()=>{ try{
+  const c=document.createElement('canvas'); c.width=c.height=8;
+  const x=c.getContext('2d',{colorSpace:'display-p3'});
+  if(!x || !x.getContextAttributes || x.getContextAttributes().colorSpace!=='display-p3') return;
+  x.fillStyle='color(display-p3 1 0 0)'; x.fillRect(0,0,8,8);
+  const b=await new Promise(r=>c.toBlob(r,'image/jpeg',0.9)); if(!b) return;
+  const t=new Uint8Array(await b.arrayBuffer()), sig=[73,67,67,95,80,82,79,70,73,76,69]; // "ICC_PROFILE"
+  outer: for(let i=0;i<t.length-sig.length;i++){ for(let j=0;j<sig.length;j++) if(t[i+j]!==sig[j]) continue outer; P3=true; break; }
+}catch(_){} })();
+function ctx2d(can,o={}){ return can.getContext('2d', P3?Object.assign({},o,{colorSpace:'display-p3'}):o); }
 const video=$('video'), overlay=$('overlay'), octx=overlay.getContext('2d');
 const S = { sel:-1, mode:'cam', running:false, stream:null, cv:null, cards:[], seq:0, lastQuad:null, stopVid:false };
 const CARD_RATIO = 88/63;
@@ -329,7 +346,9 @@ function warp(src,q,keep){
   const dp=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,W,0,W,H,0,H]);
   const M=cv.getPerspectiveTransform(sp,dp), out=new cv.Mat();
   cv.warpPerspective(src,out,M,new cv.Size(W,H),cv.INTER_CUBIC,cv.BORDER_REPLICATE);
-  const can=document.createElement('canvas'); cv.imshow(can,out);
+  const can=document.createElement('canvas'); can.width=W; can.height=H;
+  const id=P3 ? new ImageData(new Uint8ClampedArray(out.data),W,H,{colorSpace:'display-p3'}) : new ImageData(new Uint8ClampedArray(out.data),W,H);
+  ctx2d(can).putImageData(id,0,0);
   sp.delete(); dp.delete(); M.delete(); out.delete();
   return can;
 }
@@ -342,13 +361,13 @@ function thumbSig(can){
 }
 function sigDiff(a,b){ let s=0; for(let i=0;i<a.length;i++) s+=Math.abs(a[i]-b[i]); return s/a.length; }
 
-const full=document.createElement('canvas'), fctx=full.getContext('2d',{willReadFrequently:true});
-async function capture(source,w,h,{initial=false,manual=false}={}){
+const full=document.createElement('canvas'); let fctx=null;
+async function capture(source,w,h,{initial=false,manual=false,photo=false}={}){
   if(!S.cv) return;
-  full.width=w; full.height=h; fctx.drawImage(source,0,0,w,h);
-  const src=S.cv.imread(full);
+  full.width=w; full.height=h; fctx=ctx2d(full,{willReadFrequently:true}); fctx.drawImage(source,0,0,w,h);
+  const src=S.cv.matFromImageData(fctx.getImageData(0,0,w,h));
   let q;
-  try{ q = S.frameOn ? frameQuad(w,h) : findCard(src); if(!q && !initial) q=S.lastQuad; if(!q){ if(!manual) return; q=[[0,0],[w,0],[w,h],[0,h]]; var whole=true; toast('找不到卡片邊緣，先存整張畫面'); }
+  try{ q = (S.frameOn && !photo) ? frameQuad(w,h) : findCard(src); if(!q && !initial) q=S.lastQuad; if(!q){ if(!manual) return; q=[[0,0],[w,0],[w,h],[0,h]]; var whole=true; toast('找不到卡片邊緣，先存整張畫面'); }
        if(!initial || q) S.lastQuad=q;
        var can=warp(src,q,typeof whole!=='undefined');
   } finally { src.delete(); }
@@ -398,7 +417,7 @@ function applyAdj(data,a){
 function adjCanvas(bmp,maxSide,a,raw){
   const k=Math.min(1,maxSide/Math.max(bmp.width,bmp.height));
   const can=document.createElement('canvas'); can.width=Math.round(bmp.width*k); can.height=Math.round(bmp.height*k);
-  const x=can.getContext('2d',{willReadFrequently:true}); x.drawImage(bmp,0,0,can.width,can.height);
+  const x=ctx2d(can,{willReadFrequently:true}); x.drawImage(bmp,0,0,can.width,can.height);
   if(!raw && !isNeutral(a)){ const im=x.getImageData(0,0,can.width,can.height); applyAdj(im.data,a); x.putImageData(im,0,0); }
   return can;
 }
@@ -408,7 +427,7 @@ function drawPreview(){
   $('adjBox').hidden=!S.cards.length;
   const c=S.cards[S.sel]; if(!c) return;
   const src=adjCanvas(c.bmp,560,adj(),showRaw), pv=$('adjPrev');
-  pv.width=src.width; pv.height=src.height; pv.getContext('2d').drawImage(src,0,0);
+  pv.width=src.width; pv.height=src.height; ctx2d(pv).drawImage(src,0,0);
 }
 // 背景先算好全尺寸輸出，按儲存時才能馬上跳分享選單
 let outTimer=null;
@@ -489,7 +508,7 @@ function gradeOf(cn){
            short: cls==='g10'?'10':cls==='g9'?'9':cls==='g9e'?'9?':cls==='g8'?'8':'偏' };
 }
 // 對話框裡的可拖動量測線
-const dc=$('dlgCan'), dx=dc.getContext('2d'); let dlgImgCan=null, drag=null;
+const dc=$('dlgCan'), dx=ctx2d(dc); let dlgImgCan=null, drag=null;
 function cenDraw(){
   const c=S.cards[viewing]; if(!c||!dlgImgCan) return;
   dc.width=dlgImgCan.width; dc.height=dlgImgCan.height; dx.drawImage(dlgImgCan,0,0);
@@ -550,7 +569,7 @@ $('dlgClose').onclick=()=>$('dlg').close();
 $('dlgSave').onclick=()=>saveFiles([S.cards[viewing]]);
 $('dlgRot').onclick=async()=>{
   const c=S.cards[viewing], im=c.bmp, can=document.createElement('canvas');
-  can.width=im.height; can.height=im.width; const x=can.getContext('2d');
+  can.width=im.height; can.height=im.width; const x=ctx2d(can);
   x.translate(can.width/2,can.height/2); x.rotate(Math.PI/2); x.drawImage(im,-im.width/2,-im.height/2);
   c.blob=await new Promise(r=>can.toBlob(r,'image/jpeg',0.95)); c.bmp=await createImageBitmap(can); c.outKey=''; c.center=centerAuto(c.bmp);
   makeThumb(c); dlgShow(); render(); drawPreview(); queueOutputs();
@@ -600,7 +619,8 @@ function camButtons(){
   const man=S.capMode==='manual', on=S.running;
   $('btnStart').textContent = man ? (on?'關閉預覽':'開啟預覽') : (on?'停止':'開始');
   $('btnStart').classList.toggle('primary', !on && !man);
-  $('btnShot').textContent = man ? (quickBusy?'拍照中…':'拍照') : '手動拍一張';
+  $('btnShot').textContent = man ? (quickBusy?'處理中…':(on?'拍照（預覽畫面）':'拍照（iPhone 相機）')) : '手動拍一張';
+  $('btnLib').hidden = !man;
   $('btnShot').classList.toggle('shutter', man);
   $('btnShot').disabled = !S.cv || quickBusy || (!man && !on);
   $('stage').classList.toggle('tap', man);
@@ -608,7 +628,7 @@ function camButtons(){
   $('hint').hidden = on;
   if(typeof frameUI==='function') frameUI();
   if(!on && S.mode==='cam') $('hint').textContent = quickBusy ? '拍照中，相機稍後自動關閉…' : man
-    ? '手動模式：相機目前關閉。放好卡片後直接按「拍照」，會暫時開相機拍一張就關掉；要先對位就按「開啟預覽」。'
+    ? '手動模式：按「拍照（iPhone 相機）」會開手機內建相機，會自動切微距、畫質最好，拍完程式自動裁切。已經拍好的照片可以按「從相簿匯入」一次處理多張。'
     : '手機放在拍照盒上方，按「開始」。每放一張卡、手移開約 0.7 秒後會自動拍下並裁切。';
 }
 async function openStream(){
@@ -637,22 +657,39 @@ function stopCam(){
   try{ wakeLock?.release(); wakeLock=null; }catch(_){}
   camButtons();
 }
-// 沒開預覽時拍照：暫時開相機，等對焦曝光穩定後拍一張，再關掉
-async function quickShot(){
-  quickBusy=true; camButtons();
-  try{
-    if(!await openStream()) return;
-    await new Promise(r=>setTimeout(r,1200));
-    if(video.videoWidth) await capture(video,video.videoWidth,video.videoHeight,{manual:true});
-  } finally { closeStream(); quickBusy=false; camButtons(); }
-}
 $('btnStart').onclick=()=> S.running?stopCam():startCam();
 $('btnShot').onclick=()=>{
   if(S.running) capture(video,video.videoWidth,video.videoHeight,{manual:true});
-  else if(S.capMode==='manual' && !quickBusy) quickShot();
+  else if(S.capMode==='manual' && !quickBusy) $('photoCam').click();
 };
 // 手動模式：點取景畫面也能拍
 $('stage').addEventListener('click',()=>{ if(S.mode==='cam' && S.capMode==='manual' && !quickBusy) $('btnShot').click(); });
+/* ---------- 內建相機照片 / 相簿照片 ---------- */
+function loadImg(file){ return new Promise((res,rej)=>{ const u=URL.createObjectURL(file), im=new Image();
+  im.onload=()=>{ URL.revokeObjectURL(u); res(im); }; im.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error('無法讀取照片')); }; im.src=u; }); }
+async function processPhotos(files){
+  if(!files.length) return;
+  if(!S.cv){ toast('影像引擎還在載入，請稍候'); return; }
+  quickBusy=true; camButtons();
+  const before=S.cards.length;
+  try{
+    for(let i=0;i<files.length;i++){
+      if(files.length>1){ $('modeNote').className='note'; $('modeNote').textContent=`處理照片 ${i+1} / ${files.length}`; }
+      try{
+        const im=await loadImg(files[i]);
+        // 4800 萬畫素太大，縮到長邊 4032（約 1200 萬畫素）再處理，避免手機記憶體不足
+        const k=Math.min(1,4032/Math.max(im.naturalWidth,im.naturalHeight));
+        const w=Math.round(im.naturalWidth*k), h=Math.round(im.naturalHeight*k);
+        await capture(im,w,h,{manual:true,photo:true});
+      }catch(e){ toast(e.message||'照片處理失敗'); }
+      await new Promise(r=>setTimeout(r,0));
+    }
+  } finally { quickBusy=false; camButtons(); }
+  if(files.length>1) $('modeNote').textContent=`照片處理完成，新增 ${S.cards.length-before} 張。`;
+}
+$('photoCam').onchange=e=>{ const f=[...e.target.files]; e.target.value=''; processPhotos(f); };
+$('photoLib').onchange=e=>{ const f=[...e.target.files]; e.target.value=''; processPhotos(f); };
+$('btnLib').onclick=()=>$('photoLib').click();
 /* ---------- 自動 / 手動 拍攝模式 ---------- */
 S.capMode='auto';
 try{ if(localStorage.getItem('cardbox.capMode')==='manual') S.capMode='manual'; }catch(_){}
